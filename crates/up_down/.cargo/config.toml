@@ -1,0 +1,8 @@
+# Build CKB contracts for the expected RISC-V target inside this workspace.
+[build]
+target = "riscv64imac-unknown-none-elf"
+
+[target.riscv64imac-unknown-none-elf]
+# Disable the atomic extension so the produced ELF matches the ckb-vm surface
+# conservatively (mirrors the lean_oracle setup).
+rustflags = ["-C", "link-arg=-s", "-C", "target-feature=-a"]

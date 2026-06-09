@@ -1,0 +1,18 @@
+# Treasury guard lock (xUDT variant). Compiles to the `treasury_lock` binary.
+[package]
+name = "treasury_lock"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Standalone (no `up-down-common`) so the binary's code hash stays stable —
+# `pool_type` pins this hash to identify TreasuryCells.
+ckb-std = "1.0"
+
+[features]
+library = []
+native-simulator = ["library", "ckb-std/native-simulator"]
+
+[[bin]]
+name = "treasury_lock"
+path = "src/main.rs"

@@ -1,0 +1,17 @@
+# PoolCell lock — continuation-or-creator. Compiles to `pool_admin_lock`.
+[package]
+name = "pool_admin_lock"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ckb-std = "1.0"
+up-down-common = { path = "../common" }
+
+[features]
+library = []
+native-simulator = ["library", "ckb-std/native-simulator"]
+
+[[bin]]
+name = "pool_admin_lock"
+path = "src/main.rs"

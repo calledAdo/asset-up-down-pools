@@ -1,0 +1,19 @@
+# Pool state-machine type script. Compiles to the `pool_type` CKB binary.
+[package]
+name = "pool_type"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ckb-std = "1.0"
+up-down-common = { path = "../common" }
+# Type ID hashing (CKB default blake2b personalization).
+blake2b-ref = "0.3"
+
+[features]
+library = []
+native-simulator = ["library", "ckb-std/native-simulator"]
+
+[[bin]]
+name = "pool_type"
+path = "src/main.rs"

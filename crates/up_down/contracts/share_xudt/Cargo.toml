@@ -1,0 +1,18 @@
+# UP/DOWN share token. Compiles to the `share_xudt` CKB binary.
+[package]
+name = "share_xudt"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# Standalone (no `up-down-common`) so the binary's code hash stays stable even
+# when `common` changes — `pool_type` pins this hash.
+ckb-std = "1.0"
+
+[features]
+library = []
+native-simulator = ["library", "ckb-std/native-simulator"]
+
+[[bin]]
+name = "share_xudt"
+path = "src/main.rs"

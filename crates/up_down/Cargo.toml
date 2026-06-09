@@ -1,0 +1,34 @@
+# Workspace manifest for the CKB Up/Down contracts.
+#
+# Layout intentionally mirrors the sibling `lean_oracle` repo so the two feel
+# alike to navigate: a shared `common` crate, one crate per on-chain script, and
+# a host-side `tests` crate.
+[workspace]
+resolver = "2"
+members = [
+    # Shared data layouts (PoolData), oracle decoding, constants, error codes.
+    "contracts/common",
+    # Pool state-machine type script (the core).
+    "contracts/pool_type",
+    # UP/DOWN share token (xUDT-data-compatible, pool-gated mint/burn).
+    "contracts/share_xudt",
+    # Treasury guard lock (xUDT variant) — spendable only with its PoolCell.
+    "contracts/treasury_lock",
+    # PoolCell lock — continuation-or-creator authorization.
+    "contracts/pool_admin_lock",
+    # Host-side tests.
+    "tests",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+[profile.dev]
+panic = "abort"

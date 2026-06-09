@@ -1,0 +1,11 @@
+# Shared `up-down-common` crate: data layouts, oracle decoding, constants, and
+# error codes used by every on-chain script and the host tests. `no_std` so it
+# can be linked into CKB contract crates.
+[package]
+name = "up-down-common"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+# CKB default-hash blake2b for the oracle-identity commitment.
+blake2b-ref = "0.3"

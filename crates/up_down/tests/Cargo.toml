@@ -1,0 +1,12 @@
+# Host-side tests. Run with `cargo test --target x86_64-unknown-linux-gnu` so
+# host deps don't get built for the no-std contract target.
+[package]
+name = "tests"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+up-down-common = { path = "../contracts/common" }
+# CKB transaction simulation framework for integration tests against the
+# compiled contract binaries (used as fixtures are added).
+ckb-testtool = "1.0.1"
