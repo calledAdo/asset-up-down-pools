@@ -101,7 +101,7 @@ must be built manually with `hash_type = Data1` and
 
 - **Oracle reference identity still being hardened.** Week 1 located and pinned the
   oracle, but verifying that the dep cell is the *real* one (right guardians + Pyth
-  source, not just the right type) is unfinished — carried into Week 2.
+  source, not just the right type) is still open.
 - **Pinned to the testnet oracle v2 deployment** (`oracle_type` v2 code hash,
   BTC/USD feed) — testnet, unaudited.
 - **Single-PoolCell serialization** — deposits/redeems on one pool serialize to one
@@ -110,7 +110,7 @@ must be built manually with `hash_type = Data1` and
 
 ---
 
-## 🔜 Next Steps (carried into Week 2)
+## 🔜 Next Steps
 
 - Harden the oracle reference into a single tamper-evident commitment.
 - Replace the first-pass price boundary with a robust, griefing-resistant timing
