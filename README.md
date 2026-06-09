@@ -1,7 +1,7 @@
 # CKB Up/Down
 
 A **parimutuel BTC up/down prediction pool** on Nervos CKB, built on top of
-[Lean Oracle](../lean_oracle) (a Pyth/Wormhole price oracle). Players stake into the UP or
+[Lean Oracle](https://github.com/calledAdo/lean-oracle) (a Pyth/Wormhole price oracle). Players stake into the UP or
 DOWN side of a timed pool and receive fungible **xUDT share tokens**; the pool is activated
 at `start_time` and resolved at `close_time` from authenticated oracle prices, and winners
 redeem pro-rata against the losing side — fully on-chain, no custodian, no protocol liquidity.
