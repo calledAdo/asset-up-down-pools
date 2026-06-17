@@ -24,7 +24,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node tests/poolData.fixture.mjs && node tests/oracleCommit.fixture.mjs && node tests/scripts.fixture.mjs"
+    "test": "npm run build && node tests/poolData.fixture.mjs && node tests/oracleCommit.fixture.mjs && node tests/scripts.fixture.mjs && node tests/payout.fixture.mjs && node tests/cells.fixture.mjs"
   },
   "dependencies": {
     "@ckb-ccc/core": "^1.12.2"

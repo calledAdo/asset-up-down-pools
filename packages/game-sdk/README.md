@@ -2,10 +2,11 @@
 
 TypeScript SDK for the [CKB Up/Down](../../README.md) parimutuel prediction pools.
 
-> **Status: foundational layer.** This package currently ships the
-> correctness-critical primitives — the `PoolData` codec, the oracle-identity
-> commitment, and on-chain script derivation — verified byte-for-byte against the
-> Rust contracts. Transaction builders and chain queries are next.
+> **Status: primitives + read layer.** This package ships the correctness-critical
+> primitives (codec, oracle commitment, script derivation, typeID, payout math)
+> and the chain-read layer (pool/share/treasury queries), all verified against the
+> Rust contracts. Transaction builders are next (assembled and VM-verified against
+> a devnet).
 
 ## What's here
 
@@ -18,10 +19,19 @@ TypeScript SDK for the [CKB Up/Down](../../README.md) parimutuel prediction pool
 - **Script derivation** (`poolTypeScript`, `shareScript`, `treasuryLockScript`,
   `poolAdminLockScript`) — the PoolCell type, the derived UP/DOWN share tokens
   (`args = pool_type_hash ‖ side`), the xUDT TreasuryCell lock, and the PoolCell
-  admin lock (`args = creator_lock_hash`). All referenced by data hash under
-  `data2`, matching the deployment toolbox.
-- **Constants** mirroring `constants.rs` (variants, status/side enums, `grace`,
-  the testnet oracle identity defaults).
+  admin lock (`args = creator_lock_hash`). All `data2`.
+- **`computeTypeId`** — the `pool_id` seed `blake2b_ckb(first_input ‖ index_le8)`,
+  mirroring the standard Type ID rule the contract enforces.
+- **`redeemPayout` / `mulDivFloor`** — the parimutuel payout
+  (`x + floor(x·(loser − rake)/winner)`, rake on the losing pool, 1:1 refund on
+  VOID/tie), a faithful mirror of `validate_redeem`. Tested with vectors.
+- **`encodeAmount` / `decodeAmount`** — the xUDT-style u128 LE cell-data amount
+  (share + treasury cells).
+- **Queries** (`getPool`, `listPools`, `getShareBalances`, `getTreasuryBalance`)
+  over a CCC client, built on pure, unit-tested cell classifiers (`query/cells`).
+- **CCC client wiring** (`createClient`, `createPrivateKeySigner`) — self-contained
+  (testnet/mainnet/devnet), replicated rather than shared.
+- **Constants** mirroring `constants.rs`.
 
 ## Install / build / test
 
