@@ -9,7 +9,7 @@ use ckb_testtool::{
     ckb_types::{
         bytes::Bytes,
         core::{HeaderBuilder, ScriptHashType, TransactionBuilder},
-        packed::{CellInput, CellOutput, Script, Uint64},
+        packed::{CellDep, CellInput, CellOutput, Script, Uint64},
         prelude::*,
     },
     context::Context,
@@ -370,6 +370,112 @@ fn xudt_deposit_wrong_asset_type_fails() {
         .build();
     let tx = e.context.complete_tx(tx);
     assert!(e.context.verify_tx(&tx, MAX_CYCLES).is_err());
+}
+
+fn oracle_blob(price: i64, publish_time: u64, feed: [u8; 32]) -> Bytes {
+    let mut d = vec![0u8; 152];
+    d[0..32].copy_from_slice(&feed);
+    d[64..72].copy_from_slice(&price.to_le_bytes());
+    d[84..92].copy_from_slice(&publish_time.to_le_bytes());
+    d[32..64].copy_from_slice(&GUARDIAN_SET_TYPE_HASH);
+    d[116..120].copy_from_slice(&PYTH_EMITTER_CHAIN.to_le_bytes());
+    d[120..152].copy_from_slice(&PYTH_EMITTER_ADDRESS);
+    d.into()
+}
+
+/// Drive an xUDT-variant ACTIVATE (OPEN→LOCKED) with a TreasuryCell present in
+/// inputs and outputs. The treasury is non-trading here, so `phase_frozen` must
+/// conserve it: a `treasury_out != treasury_in` drain has to be rejected even
+/// though the oracle/price transition is otherwise valid.
+fn run_xudt_activate(
+    e: &mut Env,
+    treasury_in: u128,
+    treasury_out: u128,
+) -> Result<u64, ckb_testtool::ckb_error::Error> {
+    let asset = e.asset_hash();
+    let pub_t = START + 5;
+    let price: i64 = 50_000;
+
+    let prev = xudt_pool(asset, 100, 50, STATUS_OPEN, SIDE_UNDECIDED);
+    let mut prev = prev;
+    prev.start_price = 0;
+    prev.settle_price = 0;
+    prev.used_pt = 0;
+    let mut next = prev.clone();
+    next.status = STATUS_LOCKED;
+    next.start_price = price;
+    next.used_pt = pub_t;
+
+    let oracle_type = Script::new_builder()
+        .code_hash(ORACLE_TYPE_CODE_HASH.pack())
+        .hash_type(ScriptHashType::Type)
+        .args(Bytes::from(prev.feed_id.to_vec()).pack())
+        .build();
+    let oracle_out = e.context.create_cell(
+        CellOutput::new_builder()
+            .capacity(e.cap(1_000 * CKB))
+            .lock(e.lock.clone())
+            .type_(Some(oracle_type).pack())
+            .build(),
+        oracle_blob(price, pub_t, prev.feed_id),
+    );
+    let oracle_dep = CellDep::new_builder().out_point(oracle_out).build();
+
+    let pool_cap = e.cap(200 * CKB);
+    let tre_cap = e.cap(200 * CKB);
+
+    let pool_in = e.context.create_cell(
+        CellOutput::new_builder()
+            .capacity(pool_cap.clone())
+            .lock(e.lock.clone())
+            .type_(Some(e.pool_type.clone()).pack())
+            .build(),
+        prev.to_bytes().into(),
+    );
+    let tre_in = e.context.create_cell(
+        CellOutput::new_builder()
+            .capacity(tre_cap.clone())
+            .lock(e.treasury_lock.clone())
+            .type_(Some(e.asset_type.clone()).pack())
+            .build(),
+        amount(treasury_in),
+    );
+
+    let pool_o = CellOutput::new_builder()
+        .capacity(pool_cap)
+        .lock(e.lock.clone())
+        .type_(Some(e.pool_type.clone()).pack())
+        .build();
+    let tre_o = CellOutput::new_builder()
+        .capacity(tre_cap)
+        .lock(e.treasury_lock.clone())
+        .type_(Some(e.asset_type.clone()).pack())
+        .build();
+
+    let tx = TransactionBuilder::default()
+        .input(CellInput::new_builder().previous_output(pool_in).build())
+        .input(CellInput::new_builder().previous_output(tre_in).build())
+        .output(pool_o)
+        .output(tre_o)
+        .output_data(Bytes::from(next.to_bytes()).pack())
+        .output_data(amount(treasury_out).pack())
+        .cell_dep(oracle_dep)
+        .build();
+    let tx = e.context.complete_tx(tx);
+    e.context.verify_tx(&tx, MAX_CYCLES)
+}
+
+#[test]
+fn xudt_activate_conserves_treasury() {
+    let mut e = Env::new();
+    assert!(run_xudt_activate(&mut e, 150, 150).is_ok());
+}
+
+#[test]
+fn xudt_activate_treasury_drain_fails() {
+    let mut e = Env::new();
+    // Same otherwise-valid activation, but the TreasuryCell is drained.
+    assert!(run_xudt_activate(&mut e, 150, 100).is_err());
 }
 
 #[test]
