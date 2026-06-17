@@ -1,0 +1,23 @@
+{
+  "name": "ckb-up-down-deployment",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/artifacts.test.mjs tests/validate.test.mjs",
+    "deploy:share-xudt": "node --enable-source-maps ./dist/index.js deploy:share-xudt",
+    "deploy:treasury-lock": "node --enable-source-maps ./dist/index.js deploy:treasury-lock",
+    "deploy:pool-admin-lock": "node --enable-source-maps ./dist/index.js deploy:pool-admin-lock",
+    "deploy:pool-type": "node --enable-source-maps ./dist/index.js deploy:pool-type",
+    "validate:consistency": "node --enable-source-maps ./dist/index.js validate:consistency"
+  },
+  "dependencies": {
+    "@ckb-ccc/core": "^1.12.2",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3"
+  }
+}

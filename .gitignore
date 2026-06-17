@@ -30,6 +30,9 @@ pnpm-debug.log*
 *.secret
 **/migrations/
 deployment/.deployed/
+# Generated deployment outputs are local operator state (outpoints/tx hashes).
+deployment/artifacts/*
+!deployment/artifacts/.gitkeep
 .env
 .env.*
 !.env.example

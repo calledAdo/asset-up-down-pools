@@ -1,0 +1,11 @@
+{
+  "network": "devnet",
+  "label": "Local offckb Devnet",
+  "build": {
+    "target": "riscv64imac-unknown-none-elf",
+    "poolTypeBinaryPath": "crates/up_down/target/riscv64imac-unknown-none-elf/release/pool_type",
+    "shareXudtBinaryPath": "crates/up_down/target/riscv64imac-unknown-none-elf/release/share_xudt",
+    "treasuryLockBinaryPath": "crates/up_down/target/riscv64imac-unknown-none-elf/release/treasury_lock",
+    "poolAdminLockBinaryPath": "crates/up_down/target/riscv64imac-unknown-none-elf/release/pool_admin_lock"
+  }
+}
