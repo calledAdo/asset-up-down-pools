@@ -28,6 +28,8 @@ crates/up_down/            Rust workspace
     pool_admin_lock/       PoolCell lock (continuation / creator-escape)
   tests/                   ckb-testtool integration tests
 deployment/                TypeScript deploy toolbox (code-deploy + promote + consistency)
+packages/
+  game-sdk/                TypeScript SDK (PoolData codec, oracle commit, script derivation)
 Makefile                   build / test entry points
 ```
 
