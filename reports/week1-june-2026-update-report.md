@@ -110,7 +110,7 @@ must be built manually with `hash_type = Data1` and
 
 ---
 
-## 🔜 Next Steps
+## 🔜 Next Steps (carried into Week 2)
 
 - Harden the oracle reference into a single tamper-evident commitment.
 - Replace the first-pass price boundary with a robust, griefing-resistant timing
