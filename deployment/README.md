@@ -3,7 +3,7 @@
 Deployment toolbox for the four CKB Up/Down contract binaries. It publishes each
 binary as a code cell, records versioned artifacts, and validates that the deployed
 scripts are mutually consistent. It does **not** create pools — pool creation is a
-recurring runtime action and lives in the SDK/keeper.
+recurring runtime action and lives in a separate runtime/keeper layer.
 
 - `config/` — checked-in per-network deployment intent (build paths + label)
 - `.env` — operator-local RPC endpoints, keys, and controls (gitignored)
@@ -30,7 +30,8 @@ Promotion moves a candidate into the canonical version map:
 - `promote:share-xudt`, `promote:treasury-lock`, `promote:pool-admin-lock`, `promote:pool-type`
 
 State deployment (pool creation) selects an explicit canonical version, never
-`latestCandidate` — but that step is the SDK/keeper's job, not this toolbox.
+`latestCandidate` — but that step belongs to the runtime/keeper layer, not this
+toolbox.
 
 ## Script identity policy
 

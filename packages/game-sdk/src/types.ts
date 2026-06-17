@@ -40,9 +40,10 @@ export interface Script {
 }
 
 /**
- * The pinned script identities for a deployment, normally read from the
- * deployment toolbox artifacts (`deployment/artifacts/<network>.<family>.json`,
- * canonical `versions`). All are referenced by data hash under `data2`.
+ * The pinned script identities the SDK derives from, supplied by the caller.
+ * Each is the data (code) hash of a deployed contract binary; all are referenced
+ * under `data2`. Where these hashes come from is the caller's concern — the SDK
+ * takes them as given.
  */
 export interface PoolDeployment {
   poolTypeCodeHash: Hex;

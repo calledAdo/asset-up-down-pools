@@ -35,6 +35,9 @@ npm test    # builds, then runs the byte-exact fixtures against the Rust vectors
 
 The codec, `oracleCommit`, and `constants` mirror the Rust `common` crate. If the
 on-chain layout, the `oracle_commit` preimage, or any constant changes, update the
-matching TS and regenerate the golden vectors. The deployment toolbox's code
-hashes (`deployment/artifacts/<network>.<family>.json`) feed the `PoolDeployment`
-used by script derivation.
+matching TS and regenerate the golden vectors.
+
+The SDK is self-contained: it depends only on the Rust contracts (which it
+mirrors) and on caller-supplied inputs. Script derivation takes a
+`PoolDeployment` (the pinned `data2` code hashes) as a parameter; assembling those
+hashes is the caller's responsibility, not the SDK's.
