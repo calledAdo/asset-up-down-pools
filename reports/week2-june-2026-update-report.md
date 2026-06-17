@@ -47,6 +47,12 @@
 - **Fix:** a `shares_frozen` guard (`net_minted(UP) == net_minted(DOWN) == 0`) on every
   PoolCell-consuming transition that isn't a deposit/redeem, with regression tests.
   Also hardened `share_xudt` to reject any side byte other than UP/DOWN.
+- **Sibling fix — conserve the treasury too.** The same non-trading transitions only
+  pinned the PoolCell's own capacity, but an xUDT pool's funds sit in a separate
+  TreasuryCell whose `treasury_lock` is permissive while the PoolCell is in inputs — so
+  a permissionless activate/resolve/finalize could drain or split it. Added a treasury
+  balance-conservation guard (`treasury_in == treasury_out`, tolerating a treasury-less
+  pool but rejecting an ambiguous split one), with a paired drain-rejection test.
 
 ### Cross-repo coordination — an oracle creation-forgery class
 
@@ -72,7 +78,7 @@
     tests.
   - Reconciled spec/implementation drift (the pricing model, status enum, byte lengths,
     and the header-vs-oracle clock) across all five docs.
-- The integration suite now stands at **70 `ckb-testtool` tests**, all passing against
+- The integration suite now stands at **72 `ckb-testtool` tests**, all passing against
   the real RISC-V binaries.
 
 ### Repository initialization and structuring
@@ -105,11 +111,12 @@ both problems at once — there is nothing to grief and nothing to cherry-pick.
 
 ### 3. A permissive token gate makes one upstream invariant load-bearing
 
-Because `share_xudt` defers entirely to `pool_type` when its PoolCell is present, the
-safety of the whole scheme rests on a single rule: **every** PoolCell-consuming
-transition must account for **every** share movement of both sides. The critical bug
-this week was exactly a transition that forgot to — the lesson is to make that
-invariant explicit and uniformly enforced.
+Both `share_xudt` and `treasury_lock` defer entirely to `pool_type` when the PoolCell
+is present, so the safety of the whole scheme rests on a single rule: **every**
+PoolCell-consuming transition must account for **every** value movement — share supply
+and pooled funds alike. This week's bugs were exactly transitions that forgot one or
+the other; the lesson is to make that conservation invariant explicit and uniformly
+enforced across all of them.
 
 ---
 
@@ -143,6 +150,6 @@ invariant explicit and uniformly enforced.
 # Compile the four contract binaries (release, RISC-V)
 make contracts-build
 
-# Run the host + ckb-testtool integration suite (70 tests)
+# Run the host + ckb-testtool integration suite (72 tests)
 make contracts-test
 ```
