@@ -287,6 +287,22 @@ fn phase_frozen(prev: &PoolData, next: &PoolData) -> Result<[u8; 32], i8> {
         _ => return Err(ERROR_SYSCALL),
     };
     shares_frozen(&own)?;
+    // xUDT variant: the staked funds live in the TreasuryCell, whose `treasury_lock`
+    // is permissive while the PoolCell is in inputs. `pool_capacity_unchanged` only
+    // pins the PoolCell's own bytes — not the treasury — so without this a
+    // permissionless activate/resolve/correct/finalize could drain (or split) the
+    // TreasuryCell. Conserve it: input balance == output balance. `_opt` tolerates a
+    // genuinely treasury-less pool (e.g. a zero-deposit OPEN→VOID) yet still rejects
+    // an ambiguous (split) treasury, keeping the single-treasury invariant redeem
+    // relies on. (CKB-variant funds are the PoolCell capacity, frozen above.)
+    if prev.variant == VARIANT_XUDT {
+        let asset = prev.asset_type_hash.ok_or(ERROR_POOL_DATA_MALFORMED)?;
+        let tin = treasury_balance_opt(&own, &asset, Source::Input)?.unwrap_or(0);
+        let tout = treasury_balance_opt(&own, &asset, Source::Output)?.unwrap_or(0);
+        if tin != tout {
+            return Err(ERROR_FUNDS_NOT_CONSERVED);
+        }
+    }
     Ok(own)
 }
 
@@ -625,6 +641,16 @@ fn treasury_balance(
     asset_type_hash: &[u8; 32],
     source: Source,
 ) -> Result<u128, i8> {
+    treasury_balance_opt(own_type_hash, asset_type_hash, source)?.ok_or(ERROR_FUNDS_NOT_CONSERVED)
+}
+
+/// Like [`treasury_balance`] but returns `Ok(None)` when no treasury cell is present
+/// in `source`, instead of erroring. A split (ambiguous) treasury is still rejected.
+fn treasury_balance_opt(
+    own_type_hash: &[u8; 32],
+    asset_type_hash: &[u8; 32],
+    source: Source,
+) -> Result<Option<u128>, i8> {
     let mut found: Option<u128> = None;
     let mut i = 0usize;
     loop {
@@ -655,7 +681,7 @@ fn treasury_balance(
         }
         i += 1;
     }
-    found.ok_or(ERROR_FUNDS_NOT_CONSERVED)
+    Ok(found)
 }
 
 /// Net minted amount of a side's share token = Σ outputs − Σ inputs, as i128.
