@@ -27,6 +27,7 @@ crates/up_down/            Rust workspace
     treasury_lock/         xUDT treasury guard (spendable only with PoolCell present)
     pool_admin_lock/       PoolCell lock (continuation / creator-escape)
   tests/                   ckb-testtool integration tests
+deployment/                TypeScript deploy toolbox (code-deploy + promote + consistency)
 Makefile                   build / test entry points
 ```
 
