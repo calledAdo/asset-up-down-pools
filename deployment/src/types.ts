@@ -2,9 +2,8 @@ export type DeploymentNetwork = "testnet" | "mainnet" | "devnet";
 
 /**
  * Script "families" that produce code deployments/artifacts — one per contract
- * binary. `pool-type` embeds the code hashes of `share-xudt` and `treasury-lock`
- * at build time (see `validate:consistency`), so the leaves must be deployed (and
- * their constants baked into `pool_type`) before `pool-type` itself.
+ * binary. Pool creation chooses explicit canonical versions and stores the selected
+ * share/treasury code hashes in PoolData.
  */
 export type CodeDeploymentScriptFamily =
   | "pool-type"

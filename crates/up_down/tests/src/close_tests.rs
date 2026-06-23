@@ -19,7 +19,10 @@ use up_down_common::pool_data::PoolData;
 
 const MAX_CYCLES: u64 = 100_000_000;
 const CKB: u64 = 100_000_000;
+const START_TIME: u64 = 1_000_000;
 const CLOSE_TIME: u64 = 1_000_900;
+// close_grace(900) = clamp(900*8, 1h, 7d) = 7200s.
+const CLOSE_GRACE: u64 = close_grace(CLOSE_TIME - START_TIME);
 
 fn bin(name: &str) -> Bytes {
     std::fs::read(format!(
@@ -27,6 +30,10 @@ fn bin(name: &str) -> Bytes {
     ))
     .expect("build contracts first: make contracts-build")
     .into()
+}
+
+fn share_hash() -> [u8; 32] {
+    ckb_testtool::ckb_hash::blake2b_256(bin("share_xudt"))
 }
 
 fn pool_lock(_context: &Context, creator_lock_hash: &[u8; 32]) -> Script {
@@ -42,9 +49,14 @@ fn pool(status: u8) -> PoolData {
     PoolData {
         variant: VARIANT_CKB,
         asset_type_hash: None,
+        share_xudt_code_hash: share_hash(),
+        treasury_lock_code_hash: None,
         feed_id: [0x11; 32],
         oracle_commit: up_down_common::oracle_read::oracle_commit(
-            &ORACLE_TYPE_CODE_HASH, &GUARDIAN_SET_TYPE_HASH, PYTH_EMITTER_CHAIN, &PYTH_EMITTER_ADDRESS,
+            &ORACLE_TYPE_CODE_HASH,
+            &GUARDIAN_SET_TYPE_HASH,
+            PYTH_EMITTER_CHAIN,
+            &PYTH_EMITTER_ADDRESS,
         ),
         start_time: 1_000_000,
         close_time: CLOSE_TIME,
@@ -98,7 +110,10 @@ fn run(status: u8, now_secs: u64) -> Result<u64, ckb_testtool::ckb_error::Error>
             .build(),
         Bytes::new(),
     );
-    let sink = CellOutput::new_builder().capacity(out_cap).lock(creator_lock).build();
+    let sink = CellOutput::new_builder()
+        .capacity(out_cap)
+        .lock(creator_lock)
+        .build();
 
     let ts: Uint64 = (now_secs * 1000).pack();
     let header = HeaderBuilder::default().timestamp(ts).build();
@@ -118,12 +133,12 @@ fn run(status: u8, now_secs: u64) -> Result<u64, ckb_testtool::ckb_error::Error>
 
 #[test]
 fn close_finalized_after_grace_succeeds() {
-    assert!(run(STATUS_FINALIZED, CLOSE_TIME + CLOSE_GRACE_SECS + 100).is_ok());
+    assert!(run(STATUS_FINALIZED, CLOSE_TIME + CLOSE_GRACE + 100).is_ok());
 }
 
 #[test]
 fn close_void_after_grace_succeeds() {
-    assert!(run(STATUS_VOID, CLOSE_TIME + CLOSE_GRACE_SECS + 100).is_ok());
+    assert!(run(STATUS_VOID, CLOSE_TIME + CLOSE_GRACE + 100).is_ok());
 }
 
 #[test]
@@ -134,15 +149,15 @@ fn close_before_grace_fails() {
 // A still-contestable SETTLED pool must not be closeable (must finalize first).
 #[test]
 fn close_settled_fails() {
-    assert!(run(STATUS_SETTLED, CLOSE_TIME + CLOSE_GRACE_SECS + 100).is_err());
+    assert!(run(STATUS_SETTLED, CLOSE_TIME + CLOSE_GRACE + 100).is_err());
 }
 
 #[test]
 fn close_open_pool_fails() {
-    assert!(run(STATUS_OPEN, CLOSE_TIME + CLOSE_GRACE_SECS + 100).is_err());
+    assert!(run(STATUS_OPEN, CLOSE_TIME + CLOSE_GRACE + 100).is_err());
 }
 
 #[test]
 fn close_locked_pool_fails() {
-    assert!(run(STATUS_LOCKED, CLOSE_TIME + CLOSE_GRACE_SECS + 100).is_err());
+    assert!(run(STATUS_LOCKED, CLOSE_TIME + CLOSE_GRACE + 100).is_err());
 }

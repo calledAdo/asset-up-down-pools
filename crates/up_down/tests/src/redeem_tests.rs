@@ -27,13 +27,22 @@ fn bin(name: &str) -> Bytes {
     .into()
 }
 
+fn share_hash() -> [u8; 32] {
+    ckb_testtool::ckb_hash::blake2b_256(bin("share_xudt"))
+}
+
 fn settled_pool(up: u128, down: u128, winner: u8, rake_bps: u16) -> PoolData {
     PoolData {
         variant: VARIANT_CKB,
         asset_type_hash: None,
+        share_xudt_code_hash: share_hash(),
+        treasury_lock_code_hash: None,
         feed_id: [0x11; 32],
         oracle_commit: up_down_common::oracle_read::oracle_commit(
-            &ORACLE_TYPE_CODE_HASH, &GUARDIAN_SET_TYPE_HASH, PYTH_EMITTER_CHAIN, &PYTH_EMITTER_ADDRESS,
+            &ORACLE_TYPE_CODE_HASH,
+            &GUARDIAN_SET_TYPE_HASH,
+            PYTH_EMITTER_CHAIN,
+            &PYTH_EMITTER_ADDRESS,
         ),
         start_time: 1_000_000,
         close_time: 1_000_900,
@@ -67,13 +76,15 @@ fn run(r: Redeem) -> Result<u64, ckb_testtool::ckb_error::Error> {
     let pool_out = context.deploy_cell(bin("pool_type"));
     let _share_out = context.deploy_cell(bin("share_xudt"));
     let always_out = context.deploy_cell(ckb_testtool::builtin::ALWAYS_SUCCESS.clone());
-    let lock = context.build_script(&always_out, Bytes::new()).expect("lock");
+    let lock = context
+        .build_script(&always_out, Bytes::new())
+        .expect("lock");
 
     let pool_type_script: Script = context
         .build_script(&pool_out, Bytes::from(vec![0x22u8; 32]))
         .expect("pool_type");
     let own = pool_type_script.calc_script_hash();
-    let share_data_hash = ckb_testtool::ckb_hash::blake2b_256(bin("share_xudt"));
+    let share_data_hash = r.pool.share_xudt_code_hash;
 
     let share_script = |side: u8| -> Script {
         let mut args = own.as_slice().to_vec();
@@ -198,6 +209,93 @@ fn redeem_burning_loser_fails() {
         pool_out_cap: 1_000 * CKB - 150 * CKB,
     };
     assert!(run(r).is_err());
+}
+
+// Regression (sign-flip finding): share accounting must stay unsigned. A REDEEM
+// with NO winning-share input but an OUTPUT winning-share cell of `u128::MAX`
+// must be rejected. With a `u128 as i128` cast, `u128::MAX` reads as -1, so
+// `burned = in - out = 0 - (-1) = 1` would let the tx mint ~2^128 winning shares
+// while claiming a 1-unit burn. share_xudt is permissive (PoolCell in inputs), so
+// pool_type is the only guard.
+#[test]
+fn redeem_mint_disguised_as_burn_fails() {
+    let mut context = Context::default();
+    let pool_out = context.deploy_cell(bin("pool_type"));
+    let _share_out = context.deploy_cell(bin("share_xudt"));
+    let always_out = context.deploy_cell(ckb_testtool::builtin::ALWAYS_SUCCESS.clone());
+    let lock = context
+        .build_script(&always_out, Bytes::new())
+        .expect("lock");
+
+    let pool_type_script: Script = context
+        .build_script(&pool_out, Bytes::from(vec![0x22u8; 32]))
+        .expect("pool_type");
+    let own = pool_type_script.calc_script_hash();
+    // winner=UP, U=200, L=100, rake=0. Attacker claims payout=1 (x would read as 1).
+    let pool = settled_pool(200, 100, SIDE_UP, 0);
+    let share_data_hash = pool.share_xudt_code_hash;
+    let share_up: Script = {
+        let mut args = own.as_slice().to_vec();
+        args.push(SIDE_UP);
+        Script::new_builder()
+            .code_hash(share_data_hash.pack())
+            .hash_type(ScriptHashType::Data1)
+            .args(Bytes::from(args).pack())
+            .build()
+    };
+
+    let pool_in_cap: u64 = 1_000 * CKB;
+    let pool_out_cap: u64 = 1_000 * CKB - 1; // payout = 1
+    let in_cap: Uint64 = pool_in_cap.pack();
+    let fund_cap: Uint64 = (300 * CKB).pack();
+    let out_cap: Uint64 = pool_out_cap.pack();
+    let share_cap: Uint64 = (200 * CKB).pack();
+
+    let pool_in = context.create_cell(
+        CellOutput::new_builder()
+            .capacity(in_cap)
+            .lock(lock.clone())
+            .type_(Some(pool_type_script.clone()).pack())
+            .build(),
+        pool.to_bytes().into(),
+    );
+    let fund_in = context.create_cell(
+        CellOutput::new_builder()
+            .capacity(fund_cap)
+            .lock(lock.clone())
+            .build(),
+        Bytes::new(),
+    );
+
+    // No winning-share INPUT; instead an OUTPUT UP-share cell of u128::MAX.
+    let pool_cell_out = CellOutput::new_builder()
+        .capacity(out_cap)
+        .lock(lock.clone())
+        .type_(Some(pool_type_script).pack())
+        .build();
+    let mint_out = CellOutput::new_builder()
+        .capacity(share_cap)
+        .lock(lock.clone())
+        .type_(Some(share_up).pack())
+        .build();
+    let sink_cap: Uint64 = ((pool_in_cap + 300 * CKB) - pool_out_cap - 200 * CKB).pack();
+    let sink = CellOutput::new_builder()
+        .capacity(sink_cap)
+        .lock(lock)
+        .build();
+
+    let tx = TransactionBuilder::default()
+        .input(CellInput::new_builder().previous_output(pool_in).build())
+        .input(CellInput::new_builder().previous_output(fund_in).build())
+        .output(pool_cell_out)
+        .output(mint_out)
+        .output(sink)
+        .output_data(Bytes::from(pool.to_bytes()).pack())
+        .output_data(Bytes::from(u128::MAX.to_le_bytes().to_vec()).pack())
+        .output_data(Bytes::new().pack())
+        .build();
+    let tx = context.complete_tx(tx);
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_err());
 }
 
 #[test]

@@ -28,13 +28,22 @@ fn bin(name: &str) -> Bytes {
     .into()
 }
 
+fn share_hash() -> [u8; 32] {
+    ckb_testtool::ckb_hash::blake2b_256(bin("share_xudt"))
+}
+
 fn open_pool(up: u128, down: u128) -> PoolData {
     PoolData {
         variant: VARIANT_CKB,
         asset_type_hash: None,
+        share_xudt_code_hash: share_hash(),
+        treasury_lock_code_hash: None,
         feed_id: [0x11; 32],
         oracle_commit: up_down_common::oracle_read::oracle_commit(
-            &ORACLE_TYPE_CODE_HASH, &GUARDIAN_SET_TYPE_HASH, PYTH_EMITTER_CHAIN, &PYTH_EMITTER_ADDRESS,
+            &ORACLE_TYPE_CODE_HASH,
+            &GUARDIAN_SET_TYPE_HASH,
+            PYTH_EMITTER_CHAIN,
+            &PYTH_EMITTER_ADDRESS,
         ),
         start_time: START,
         close_time: START + 900,
@@ -58,6 +67,8 @@ struct Deposit {
     /// PoolCell output capacity (shannons).
     pool_out_cap: u64,
     now_secs: u64,
+    /// Optional replacement args for the output PoolCell's otherwise always-success lock.
+    pool_out_lock_args: Option<Bytes>,
 }
 
 fn run(d: Deposit) -> Result<u64, ckb_testtool::ckb_error::Error> {
@@ -67,7 +78,9 @@ fn run(d: Deposit) -> Result<u64, ckb_testtool::ckb_error::Error> {
     let pool_out = context.deploy_cell(bin("pool_type"));
     let _share_out = context.deploy_cell(bin("share_xudt"));
     let always_out = context.deploy_cell(ckb_testtool::builtin::ALWAYS_SUCCESS.clone());
-    let lock = context.build_script(&always_out, Bytes::new()).expect("lock");
+    let lock = context
+        .build_script(&always_out, Bytes::new())
+        .expect("lock");
 
     let pool_type_script: Script = context
         .build_script(&pool_out, Bytes::from(vec![0x22u8; 32]))
@@ -80,7 +93,7 @@ fn run(d: Deposit) -> Result<u64, ckb_testtool::ckb_error::Error> {
     // dependent type-id instead.)
     let mut share_args = own.as_slice().to_vec();
     share_args.push(d.side);
-    let share_data_hash = ckb_testtool::ckb_hash::blake2b_256(bin("share_xudt"));
+    let share_data_hash = d.prev.share_xudt_code_hash;
     let share_script: Script = Script::new_builder()
         .code_hash(share_data_hash.pack())
         .hash_type(ckb_testtool::ckb_types::core::ScriptHashType::Data1)
@@ -110,10 +123,17 @@ fn run(d: Deposit) -> Result<u64, ckb_testtool::ckb_error::Error> {
         Bytes::new(),
     );
 
+    let pool_output_lock = match d.pool_out_lock_args.clone() {
+        Some(args) => context
+            .build_script(&always_out, args)
+            .expect("pool output lock"),
+        None => lock.clone(),
+    };
+
     // Outputs: PoolCell, share cell, change.
     let pool_cell_out = CellOutput::new_builder()
         .capacity(pool_out_cap_p)
-        .lock(lock.clone())
+        .lock(pool_output_lock)
         .type_(Some(pool_type_script).pack())
         .build();
     let share_cell_out = CellOutput::new_builder()
@@ -162,6 +182,7 @@ fn happy() -> Deposit {
         side: SIDE_UP,
         pool_out_cap: 200 * CKB + 100 * CKB, // in + D
         now_secs: START - 100,
+        pool_out_lock_args: None,
     }
 }
 
@@ -185,6 +206,25 @@ fn deposit_capacity_mismatch_fails() {
 }
 
 #[test]
+fn deposit_pool_lock_mutation_fails() {
+    let mut d = happy();
+    d.pool_out_lock_args = Some(Bytes::from_static(b"attacker"));
+    assert!(run(d).is_err());
+}
+
+// Regression (overflow finding): `up_d + down_d` must use checked arithmetic.
+// A deposit recording an enormous UP delta plus a small DOWN delta whose sum
+// wraps would otherwise let the treasury rise by only the tiny wrapped total.
+#[test]
+fn deposit_total_overflow_fails() {
+    let mut d = happy();
+    d.prev = open_pool(0, 0);
+    d.next = open_pool(u128::MAX, 2); // up_d + down_d wraps
+    d.minted = u128::MAX;
+    assert!(run(d).is_err());
+}
+
+#[test]
 fn deposit_after_start_fails() {
     let mut d = happy();
     d.now_secs = START + 10; // past the open window
@@ -198,7 +238,9 @@ fn deposit_both_sides_succeeds() {
     let pool_out = context.deploy_cell(bin("pool_type"));
     let _share_out = context.deploy_cell(bin("share_xudt"));
     let always_out = context.deploy_cell(ckb_testtool::builtin::ALWAYS_SUCCESS.clone());
-    let lock = context.build_script(&always_out, Bytes::new()).expect("lock");
+    let lock = context
+        .build_script(&always_out, Bytes::new())
+        .expect("lock");
     let pool_type_script: Script = context
         .build_script(&pool_out, Bytes::from(vec![0x22u8; 32]))
         .expect("pool_type");
@@ -228,14 +270,19 @@ fn deposit_both_sides_succeeds() {
         prev.to_bytes().into(),
     );
     let fund_in = context.create_cell(
-        CellOutput::new_builder().capacity(cap400).lock(lock.clone()).build(),
+        CellOutput::new_builder()
+            .capacity(cap400)
+            .lock(lock.clone())
+            .build(),
         Bytes::new(),
     );
 
     let pool_out_cap: Uint64 = (200 * CKB + 130 * CKB).pack(); // + total stake
     let scap: Uint64 = (100 * CKB).pack();
     let ts: Uint64 = ((START - 100) * 1000).pack();
-    let header = ckb_testtool::ckb_types::core::HeaderBuilder::default().timestamp(ts).build();
+    let header = ckb_testtool::ckb_types::core::HeaderBuilder::default()
+        .timestamp(ts)
+        .build();
     context.insert_header(header.clone());
 
     let tx = TransactionBuilder::default()

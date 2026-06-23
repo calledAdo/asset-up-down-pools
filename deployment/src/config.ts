@@ -69,9 +69,16 @@ export function loadDeploymentContext(argv: string[]): DeploymentContext {
   }
 
   const prefix = network.toUpperCase();
+  // Only code-deployment actions touch the chain (need an RPC + deployer key).
+  // validate:* and promote:* are offline (preflight reporting / artifact moves),
+  // so for them the chain env is optional — required env must never crash the very
+  // command (`validate:config`) whose job is to report that it's missing.
+  const needsChainEnv = action.startsWith("deploy:");
+  const chainEnv = (name: string): string =>
+    needsChainEnv ? requireEnv(name) : (process.env[name] ?? "");
   const env: DeploymentContext["env"] = {
-    rpcUrl: requireEnv(`${prefix}_CKB_RPC_URL`),
-    deployerPrivateKey: requireEnv(`${prefix}_DEPLOYER_PRIVATE_KEY`),
+    rpcUrl: chainEnv(`${prefix}_CKB_RPC_URL`),
+    deployerPrivateKey: chainEnv(`${prefix}_DEPLOYER_PRIVATE_KEY`),
     broadcast: process.env.BROADCAST ?? "false",
     dryRun: process.env.DRY_RUN ?? "true",
     devnetSecp256k1Blake160CodeHash:

@@ -44,7 +44,9 @@ impl OracleRead {
                 d[OFF_PUBLISH_TIME..OFF_PUBLISH_TIME + 8].try_into().ok()?,
             ),
             emitter_chain: u32::from_le_bytes(
-                d[OFF_EMITTER_CHAIN..OFF_EMITTER_CHAIN + 4].try_into().ok()?,
+                d[OFF_EMITTER_CHAIN..OFF_EMITTER_CHAIN + 4]
+                    .try_into()
+                    .ok()?,
             ),
             emitter_address,
         })

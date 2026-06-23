@@ -81,6 +81,38 @@ fn transfer_conserves_supply() {
 }
 
 #[test]
+fn transfer_burn_succeeds() {
+    // No PoolCell present: a holder burns their shares (no share output) and
+    // reclaims the cell's CKB as a plain cell. Supply only decreases -> allowed.
+    let mut context = Context::default();
+    context.deploy_cell(bin("share_xudt"));
+    let always_out = context.deploy_cell(ckb_testtool::builtin::ALWAYS_SUCCESS.clone());
+    let lock = context.build_script(&always_out, Bytes::new()).unwrap();
+
+    let pool_hash = [0x22u8; 32];
+    let share = share_script(&pool_hash, SIDE_UP);
+    let cap: Uint64 = (200 * CKB).pack();
+
+    let share_in = context.create_cell(
+        CellOutput::new_builder()
+            .capacity(cap.clone())
+            .lock(lock.clone())
+            .type_(Some(share).pack())
+            .build(),
+        amount(1_000),
+    );
+
+    let tx = TransactionBuilder::default()
+        .input(CellInput::new_builder().previous_output(share_in).build())
+        // Plain CKB output (no share type): the burned cell's capacity returns as CKB.
+        .output(CellOutput::new_builder().capacity(cap).lock(lock).build())
+        .output_data(Bytes::new().pack())
+        .build();
+    let tx = context.complete_tx(tx);
+    assert!(context.verify_tx(&tx, MAX_CYCLES).is_ok());
+}
+
+#[test]
 fn transfer_supply_increase_fails() {
     let mut context = Context::default();
     context.deploy_cell(bin("share_xudt"));

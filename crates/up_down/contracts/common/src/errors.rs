@@ -29,6 +29,11 @@ pub const ERROR_ORACLE_BAND: i8 = 17;
 pub const ERROR_TIME_WINDOW: i8 = 18;
 // Parimutuel payout math did not match.
 pub const ERROR_PAYOUT_MISMATCH: i8 = 19;
+// A continuation (1-to-1) rewrote the PoolCell lock. The lock identity (and its
+// creator_lock_hash) is fixed for the pool's life; the output PoolCell must keep
+// the input's lock, or a permissionless transition could hand control (future
+// liveness + CLOSE/teardown authority) to an attacker-chosen lock.
+pub const ERROR_LOCK_MUTATED: i8 = 20;
 
 // --- share_xudt ----------------------------------------------------------
 // Transfer mode: total supply of this token changed without its PoolCell.

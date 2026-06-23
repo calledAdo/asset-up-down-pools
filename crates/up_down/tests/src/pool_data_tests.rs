@@ -13,9 +13,18 @@ mod tests {
             } else {
                 None
             },
+            share_xudt_code_hash: [0xCD; 32],
+            treasury_lock_code_hash: if variant == VARIANT_XUDT {
+                Some([0xEF; 32])
+            } else {
+                None
+            },
             feed_id: [0x11; 32],
             oracle_commit: up_down_common::oracle_read::oracle_commit(
-                &ORACLE_TYPE_CODE_HASH, &GUARDIAN_SET_TYPE_HASH, PYTH_EMITTER_CHAIN, &PYTH_EMITTER_ADDRESS,
+                &ORACLE_TYPE_CODE_HASH,
+                &GUARDIAN_SET_TYPE_HASH,
+                PYTH_EMITTER_CHAIN,
+                &PYTH_EMITTER_ADDRESS,
             ),
             start_time: 1_700_000_000,
             close_time: 1_700_000_900,
@@ -71,6 +80,14 @@ mod tests {
         // config may not
         b.rake_bps += 1;
         assert!(!a.config_unchanged(&b));
+
+        let mut c = a.clone();
+        c.share_xudt_code_hash = [0xCC; 32];
+        assert!(!a.config_unchanged(&c));
+
+        let mut d = a.clone();
+        d.treasury_lock_code_hash = Some([0xDD; 32]);
+        assert!(!a.config_unchanged(&d));
     }
 
     #[test]

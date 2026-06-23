@@ -19,7 +19,7 @@ if (ctx.action === "validate:config") {
   process.exitCode = exitCode;
   // No side effects for validate:config.
 } else if (ctx.action === "validate:consistency") {
-  // Build first so we check the embedded hashes against fresh binaries.
+  // Build first so the report prints fresh code hashes for every binary.
   await buildContracts(ctx);
   const { exitCode, lines } = validateConsistency(ctx);
   for (const line of lines) console.log(line);

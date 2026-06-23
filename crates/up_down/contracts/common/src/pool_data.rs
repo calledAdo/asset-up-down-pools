@@ -1,21 +1,21 @@
 //! PoolCell data layout and manual little-endian encoding.
 //!
 //! `pool_id` lives in the type-script args (the typeID), not here. The UP/DOWN
-//! share-token identities are derived (not stored). The layout is led by
-//! `variant`, which decides whether `asset_type_hash` is present:
+//! share-token and treasury identities are config, not build-time constants. The
+//! layout is led by `variant`, which decides whether xUDT-only fields are present:
 //!
-//! - CKB variant  (`variant == 0`): `POOL_LEN_CKB  = 141`
-//! - xUDT variant (`variant == 1`): `POOL_LEN_XUDT = 173`
+//! - CKB variant  (`variant == 0`): `POOL_LEN_CKB  = 173`
+//! - xUDT variant (`variant == 1`): `POOL_LEN_XUDT = 237`
 //!
 //! See `docs/pool_type-spec.md` for the full offset tables.
 
 use crate::constants::{VARIANT_CKB, VARIANT_XUDT};
 use alloc::vec::Vec;
 
-pub const POOL_LEN_CKB: usize = 141;
-pub const POOL_LEN_XUDT: usize = 173;
+pub const POOL_LEN_CKB: usize = 173;
+pub const POOL_LEN_XUDT: usize = 237;
 
-/// The contiguous oracle-identity block that follows `variant [+asset_type_hash]`:
+/// The contiguous oracle-identity block that follows the script-identity config:
 /// feed_id(32) oracle_commit(32) = 64. `oracle_commit` is a single hash binding
 /// the oracle type code hash + the trust root (guardian-set type hash + Pyth
 /// emitter chain/address) — see `oracle_read::oracle_commit`. `feed_id` stays in
@@ -32,6 +32,10 @@ pub struct PoolData {
     pub variant: u8,
     /// Some iff `variant == VARIANT_XUDT`.
     pub asset_type_hash: Option<[u8; 32]>,
+    /// Code hash of this pool's UP/DOWN share xUDT script.
+    pub share_xudt_code_hash: [u8; 32],
+    /// Code hash of this pool's treasury lock, present iff `variant == VARIANT_XUDT`.
+    pub treasury_lock_code_hash: Option<[u8; 32]>,
     /// Pyth feed id — the oracle type script's args. Pins which feed *and*,
     /// together with `oracle_code_hash`, exactly which oracle type is trusted.
     pub feed_id: [u8; 32],
@@ -61,12 +65,14 @@ impl PoolData {
     /// Decode PoolCell data. Peeks `variant`, then branches on length.
     pub fn from_bytes(d: &[u8]) -> Option<Self> {
         let variant = *d.first()?;
-        let (asset_type_hash, r0) = match variant {
-            VARIANT_CKB => (None, 1usize),
+        let (asset_type_hash, treasury_lock_code_hash, r0) = match variant {
+            VARIANT_CKB => (None, None, 33usize),
             VARIANT_XUDT => {
                 let mut h = [0u8; 32];
                 h.copy_from_slice(d.get(1..33)?);
-                (Some(h), 33usize)
+                let mut t = [0u8; 32];
+                t.copy_from_slice(d.get(65..97)?);
+                (Some(h), Some(t), 97usize)
             }
             _ => return None,
         };
@@ -74,6 +80,14 @@ impl PoolData {
         if d.len() != r0 + ORACLE_ID_LEN + TAIL_LEN {
             return None;
         }
+
+        let share_off = match variant {
+            VARIANT_CKB => 1usize,
+            VARIANT_XUDT => 33usize,
+            _ => return None,
+        };
+        let mut share_xudt_code_hash = [0u8; 32];
+        share_xudt_code_hash.copy_from_slice(d.get(share_off..share_off + 32)?);
 
         let mut feed_id = [0u8; 32];
         feed_id.copy_from_slice(&d[r0..r0 + 32]);
@@ -84,6 +98,8 @@ impl PoolData {
         Some(Self {
             variant,
             asset_type_hash,
+            share_xudt_code_hash,
+            treasury_lock_code_hash,
             feed_id,
             oracle_commit,
             start_time: u64::from_le_bytes(d[r..r + 8].try_into().ok()?),
@@ -111,6 +127,10 @@ impl PoolData {
         if let Some(h) = &self.asset_type_hash {
             out.extend_from_slice(h);
         }
+        out.extend_from_slice(&self.share_xudt_code_hash);
+        if let Some(h) = &self.treasury_lock_code_hash {
+            out.extend_from_slice(h);
+        }
         out.extend_from_slice(&self.feed_id);
         out.extend_from_slice(&self.oracle_commit);
         out.extend_from_slice(&self.start_time.to_le_bytes());
@@ -130,6 +150,8 @@ impl PoolData {
     pub fn config_unchanged(&self, o: &Self) -> bool {
         self.variant == o.variant
             && self.asset_type_hash == o.asset_type_hash
+            && self.share_xudt_code_hash == o.share_xudt_code_hash
+            && self.treasury_lock_code_hash == o.treasury_lock_code_hash
             && self.feed_id == o.feed_id
             && self.oracle_commit == o.oracle_commit
             && self.start_time == o.start_time

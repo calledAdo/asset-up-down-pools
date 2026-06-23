@@ -10,6 +10,11 @@
     "deploy:treasury-lock": "node --enable-source-maps ./dist/index.js deploy:treasury-lock",
     "deploy:pool-admin-lock": "node --enable-source-maps ./dist/index.js deploy:pool-admin-lock",
     "deploy:pool-type": "node --enable-source-maps ./dist/index.js deploy:pool-type",
+    "promote:pool-type": "node --enable-source-maps ./dist/index.js promote:pool-type",
+    "promote:share-xudt": "node --enable-source-maps ./dist/index.js promote:share-xudt",
+    "promote:treasury-lock": "node --enable-source-maps ./dist/index.js promote:treasury-lock",
+    "promote:pool-admin-lock": "node --enable-source-maps ./dist/index.js promote:pool-admin-lock",
+    "validate:config": "node --enable-source-maps ./dist/index.js validate:config",
     "validate:consistency": "node --enable-source-maps ./dist/index.js validate:consistency"
   },
   "dependencies": {

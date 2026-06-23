@@ -106,10 +106,11 @@ export function validateConfigPreflight(args: {
     }
   }
 
-  // pool-type embeds the leaf code hashes; nudge the operator to verify they
-  // line up with the binaries before publishing pool-type.
+  // Nudge the operator to record fresh code hashes before publishing pool-type.
+  // Pool creation stores share/treasury hashes in PoolData, so this is a
+  // visibility check rather than a pool-type rebuild coupling check.
   if (targetAction === "deploy:pool-type") {
-    out.push(ok("reminder: run `validate:consistency` so pool-type matches the deployed leaves"));
+    out.push(ok("reminder: run `validate:consistency` to report fresh contract code hashes"));
   }
 
   const exitCode = out.some((l) => !l.ok) ? 1 : 0;
@@ -117,15 +118,10 @@ export function validateConfigPreflight(args: {
 }
 
 /**
- * `pool_type` hardcodes the code (data) hashes of `share_xudt` and
- * `treasury_lock` (so it can derive share-token types and identify the
- * TreasuryCell). Those constants are baked in at *build* time, so a `pool_type`
- * binary is only valid against the exact leaf binaries whose hashes it embeds.
- *
- * We verify this without parsing the binary: the 32-byte code hash of each leaf
- * must appear verbatim as a byte substring inside the `pool_type` binary. A
- * missing hash means `constants.rs` is stale relative to the built leaves and
- * `pool_type` must be regenerated/rebuilt before deployment.
+ * Build-output consistency check. `pool_type` no longer embeds the code hashes of
+ * `share_xudt` or `treasury_lock`; pool creation stores those hashes in PoolData.
+ * This command therefore verifies that every configured binary exists and reports
+ * each fresh code hash for artifact/state-deployment review.
  *
  * Requires the contract binaries to be built first (`make contracts-build`).
  */
@@ -134,32 +130,20 @@ export function validateConsistency(
 ): { exitCode: number; lines: string[] } {
   const out: ResultLine[] = [];
 
-  const poolTypePath = binaryAbsPath("pool-type", ctx);
-  if (!fs.existsSync(poolTypePath) || fs.statSync(poolTypePath).size === 0) {
-    out.push(fail(`pool-type binary missing or empty: ${poolTypePath} (run \`make contracts-build\`)`));
-    return { exitCode: 1, lines: out.map((l) => l.message) };
-  }
-  const poolTypeBytes = fs.readFileSync(poolTypePath);
-
-  const embeddedLeaves: CodeDeploymentScriptFamily[] = ["share-xudt", "treasury-lock"];
-  for (const leaf of embeddedLeaves) {
-    const leafPath = binaryAbsPath(leaf, ctx);
-    if (!fs.existsSync(leafPath) || fs.statSync(leafPath).size === 0) {
-      out.push(fail(`${leaf} binary missing or empty: ${leafPath} (run \`make contracts-build\`)`));
+  const families: CodeDeploymentScriptFamily[] = [
+    "pool-type",
+    "share-xudt",
+    "treasury-lock",
+    "pool-admin-lock",
+  ];
+  for (const family of families) {
+    const binaryPath = binaryAbsPath(family, ctx);
+    if (!fs.existsSync(binaryPath) || fs.statSync(binaryPath).size === 0) {
+      out.push(fail(`${family} binary missing or empty: ${binaryPath} (run \`make contracts-build\`)`));
       continue;
     }
-    const leafBytes = fs.readFileSync(leafPath);
-    const codeHashHex = ccc.hashCkb(leafBytes);
-    const codeHashBytes = Buffer.from(codeHashHex.slice(2), "hex");
-    if (poolTypeBytes.includes(codeHashBytes)) {
-      out.push(ok(`pool-type embeds ${leaf} code hash ${codeHashHex}`));
-    } else {
-      out.push(
-        fail(
-          `pool-type does NOT embed ${leaf} code hash ${codeHashHex} — constants.rs is stale; regenerate and rebuild pool-type`,
-        ),
-      );
-    }
+    const bytes = fs.readFileSync(binaryPath);
+    out.push(ok(`${family} code hash ${ccc.hashCkb(bytes)}`));
   }
 
   const exitCode = out.some((l) => !l.ok) ? 1 : 0;

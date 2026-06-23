@@ -36,16 +36,11 @@ use ckb_std::{
     ckb_types::prelude::*,
     error::SysError,
     high_level::{
-        load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type, load_cell_type_hash,
-        load_header, load_input, load_script, QueryIter,
+        load_cell_capacity, load_cell_data, load_cell_lock, load_cell_lock_hash, load_cell_type,
+        load_cell_type_hash, load_header, load_input, load_script, QueryIter,
     },
 };
-use up_down_common::{
-    constants::*,
-    errors::*,
-    oracle_read::OracleRead,
-    pool_data::PoolData,
-};
+use up_down_common::{constants::*, errors::*, oracle_read::OracleRead, pool_data::PoolData};
 
 pub fn program_entry() -> i8 {
     // Script args carry the typeID (`pool_id`), exactly 32 bytes.
@@ -143,9 +138,28 @@ fn validate_transition() -> i8 {
         return ERROR_CONFIG_MUTATED;
     }
 
+    // The PoolCell lock identity is fixed for the pool's life. A continuation must
+    // carry it through unchanged; otherwise a permissionless transition (deposit/
+    // activate/resolve/redeem) could recreate the PoolCell under an attacker lock,
+    // capturing future liveness and CLOSE/teardown authority. (`config_unchanged`
+    // only covers PoolData, which does not include the lock.)
+    let in_lock = match load_cell_lock_hash(0, Source::GroupInput) {
+        Ok(h) => h,
+        Err(_) => return ERROR_SYSCALL,
+    };
+    let out_lock = match load_cell_lock_hash(0, Source::GroupOutput) {
+        Ok(h) => h,
+        Err(_) => return ERROR_SYSCALL,
+    };
+    if in_lock != out_lock {
+        return ERROR_LOCK_MUTATED;
+    }
+
     match (prev.status, next.status) {
         (STATUS_OPEN, STATUS_OPEN) => validate_deposit(&prev, &next),
-        (STATUS_OPEN, STATUS_LOCKED) | (STATUS_OPEN, STATUS_VOID) => validate_activate(&prev, &next),
+        (STATUS_OPEN, STATUS_LOCKED) | (STATUS_OPEN, STATUS_VOID) => {
+            validate_activate(&prev, &next)
+        }
         // Start-price contest: a provisional LOCKED start price may be replaced
         // by a strictly earlier tick in (start, close) until resolution.
         (STATUS_LOCKED, STATUS_LOCKED) => validate_correct_start(&prev, &next),
@@ -286,20 +300,22 @@ fn phase_frozen(prev: &PoolData, next: &PoolData) -> Result<[u8; 32], i8> {
         Ok(Some(h)) => h,
         _ => return Err(ERROR_SYSCALL),
     };
-    shares_frozen(&own)?;
-    // xUDT variant: the staked funds live in the TreasuryCell, whose `treasury_lock`
-    // is permissive while the PoolCell is in inputs. `pool_capacity_unchanged` only
-    // pins the PoolCell's own bytes — not the treasury — so without this a
-    // permissionless activate/resolve/correct/finalize could drain (or split) the
-    // TreasuryCell. Conserve it: input balance == output balance. `_opt` tolerates a
-    // genuinely treasury-less pool (e.g. a zero-deposit OPEN→VOID) yet still rejects
-    // an ambiguous (split) treasury, keeping the single-treasury invariant redeem
-    // relies on. (CKB-variant funds are the PoolCell capacity, frozen above.)
+    shares_frozen(&own, &prev.share_xudt_code_hash)?;
+    // xUDT variant: a transition moves no staked asset, so the TreasuryCell must
+    // stay out of the transaction entirely. Its `treasury_lock` is permissive while
+    // the PoolCell is in inputs (which it is here), so an input treasury could be
+    // drained or split; and a phantom treasury *output* would later break
+    // redeem/close, which require exactly one. Forbidding it on BOTH sides keeps it
+    // untouched — it persists as a live singleton between transitions, changing only
+    // on deposit/redeem (and swept at close). (CKB-variant funds are the PoolCell
+    // capacity, frozen above.)
     if prev.variant == VARIANT_XUDT {
-        let asset = prev.asset_type_hash.ok_or(ERROR_POOL_DATA_MALFORMED)?;
-        let tin = treasury_balance_opt(&own, &asset, Source::Input)?.unwrap_or(0);
-        let tout = treasury_balance_opt(&own, &asset, Source::Output)?.unwrap_or(0);
-        if tin != tout {
+        let treasury_lock = prev
+            .treasury_lock_code_hash
+            .ok_or(ERROR_POOL_DATA_MALFORMED)?;
+        if treasury_present(&own, &treasury_lock, Source::Input)?
+            || treasury_present(&own, &treasury_lock, Source::Output)?
+        {
             return Err(ERROR_FUNDS_NOT_CONSERVED);
         }
     }
@@ -408,7 +424,7 @@ fn validate_finalize(prev: &PoolData, next: &PoolData) -> i8 {
     0
 }
 
-// ---- stubs (next pass) ---------------------------------------------------
+// ---- CREATE --------------------------------------------------------------
 
 fn validate_create() -> i8 {
     let out = match load_pool(0, Source::GroupOutput) {
@@ -427,9 +443,14 @@ fn validate_create() -> i8 {
     {
         return ERROR_POOL_DATA_MALFORMED;
     }
-    // xUDT variant must name a real staked asset. (Treasury cell correctness —
-    // lock binding and balance — is enforced when funds first move, at DEPOSIT.)
+    if out.share_xudt_code_hash == [0u8; 32] {
+        return ERROR_POOL_DATA_MALFORMED;
+    }
+    // xUDT variant must name a real staked asset.
     if out.variant == VARIANT_XUDT && out.asset_type_hash.map_or(true, |h| h == [0u8; 32]) {
+        return ERROR_POOL_DATA_MALFORMED;
+    }
+    if out.variant == VARIANT_XUDT && out.treasury_lock_code_hash.map_or(true, |h| h == [0u8; 32]) {
         return ERROR_POOL_DATA_MALFORMED;
     }
     let now = match now_secs() {
@@ -439,6 +460,31 @@ fn validate_create() -> i8 {
     // Pool boundaries must lie in the future at creation.
     if out.start_time <= now || out.close_time <= now {
         return ERROR_TIME_WINDOW;
+    }
+    // An xUDT pool must be born with its TreasuryCell: exactly one cell holding the
+    // configured asset under this PoolCell's `treasury_lock`, at zero balance. This
+    // makes the pool depositable (the first deposit has an input treasury to grow)
+    // and prevents seeding treasury value the totals don't reflect. (`_opt` rejects
+    // a missing/ambiguous treasury; the `Some(0)` pins the zero balance. CKB-variant
+    // funds are the PoolCell capacity, which carries its own occupied minimum.)
+    if out.variant == VARIANT_XUDT {
+        let asset = match out.asset_type_hash {
+            Some(a) => a,
+            None => return ERROR_POOL_DATA_MALFORMED,
+        };
+        let treasury_lock = match out.treasury_lock_code_hash {
+            Some(h) => h,
+            None => return ERROR_POOL_DATA_MALFORMED,
+        };
+        let own = match load_cell_type_hash(0, Source::GroupOutput) {
+            Ok(Some(h)) => h,
+            _ => return ERROR_SYSCALL,
+        };
+        match treasury_balance_opt(&own, &asset, &treasury_lock, Source::Output) {
+            Ok(Some(0)) => {}
+            Ok(_) => return ERROR_FUNDS_NOT_CONSERVED,
+            Err(e) => return e,
+        }
     }
     validate_type_id_seed()
 }
@@ -510,7 +556,12 @@ fn validate_deposit(prev: &PoolData, next: &PoolData) -> i8 {
     }
     let up_d = next.up_total - prev.up_total;
     let down_d = next.down_total - prev.down_total;
-    let total = up_d + down_d;
+    // `checked_add`: a wrapping `up_d + down_d` could record an enormous position
+    // while the treasury/capacity only has to rise by the tiny wrapped sum.
+    let total = match up_d.checked_add(down_d) {
+        Some(t) => t,
+        None => return ERROR_FUNDS_NOT_CONSERVED,
+    };
     if total == 0 {
         return ERROR_FUNDS_NOT_CONSERVED;
     }
@@ -531,7 +582,7 @@ fn validate_deposit(prev: &PoolData, next: &PoolData) -> i8 {
                 Ok(c) => c as u128,
                 Err(_) => return ERROR_SYSCALL,
             };
-            if out_cap != in_cap + total {
+            if out_cap < in_cap || out_cap - in_cap != total {
                 return ERROR_FUNDS_NOT_CONSERVED;
             }
         }
@@ -540,24 +591,28 @@ fn validate_deposit(prev: &PoolData, next: &PoolData) -> i8 {
                 Some(a) => a,
                 None => return ERROR_POOL_DATA_MALFORMED,
             };
-            let tin = match treasury_balance(&own, &asset, Source::Input) {
+            let treasury_lock = match prev.treasury_lock_code_hash {
+                Some(h) => h,
+                None => return ERROR_POOL_DATA_MALFORMED,
+            };
+            let tin = match treasury_balance(&own, &asset, &treasury_lock, Source::Input) {
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            let tout = match treasury_balance(&own, &asset, Source::Output) {
+            let tout = match treasury_balance(&own, &asset, &treasury_lock, Source::Output) {
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            if tout != tin + total {
+            if tout < tin || tout - tin != total {
                 return ERROR_FUNDS_NOT_CONSERVED;
             }
             // Depositor cells must be the configured staked asset (not a worthless
             // token); net outflow from non-treasury asset cells funds the stake.
-            let dep_net = match depositor_net_asset(&own, &asset) {
+            let (dep_in, dep_out) = match depositor_io(&own, &asset, &treasury_lock) {
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            if dep_net != total as i128 {
+            if dep_in < dep_out || dep_in - dep_out != total {
                 return ERROR_FUNDS_NOT_CONSERVED;
             }
             // The xUDT PoolCell holds no funds itself; its capacity stays put.
@@ -571,22 +626,63 @@ fn validate_deposit(prev: &PoolData, next: &PoolData) -> i8 {
     }
 
     // Share minting: each side's net mint == that side's total delta.
-    let up_minted = match net_minted(&own, SIDE_UP) {
+    let (up_in, up_out) = match share_io(&own, &prev.share_xudt_code_hash, SIDE_UP) {
         Ok(v) => v,
         Err(e) => return e,
     };
-    let down_minted = match net_minted(&own, SIDE_DOWN) {
+    let (down_in, down_out) = match share_io(&own, &prev.share_xudt_code_hash, SIDE_DOWN) {
         Ok(v) => v,
         Err(e) => return e,
     };
-    if up_minted != up_d as i128 || down_minted != down_d as i128 {
+    // Mint exactly each side's delta: outputs ≥ inputs and (outputs − inputs) == delta.
+    if up_out < up_in
+        || up_out - up_in != up_d
+        || down_out < down_in
+        || down_out - down_in != down_d
+    {
         return ERROR_SHARE_MISMATCH;
     }
     0
 }
 
-fn is_treasury_cell(lock_code: &[u8], lock_args: &[u8], own_type_hash: &[u8; 32]) -> bool {
-    lock_code == &TREASURY_LOCK_CODE_HASH[..] && lock_args == own_type_hash
+fn is_treasury_cell(
+    lock_code: &[u8],
+    lock_args: &[u8],
+    own_type_hash: &[u8; 32],
+    treasury_lock_code_hash: &[u8; 32],
+) -> bool {
+    lock_code == &treasury_lock_code_hash[..] && lock_args == own_type_hash
+}
+
+/// True if any cell in `source` is locked by this pool's `treasury_lock`
+/// (`lock == {treasury_lock_code_hash, args: own_type_hash}`). Used by
+/// `phase_frozen` to keep the TreasuryCell out of transitions, which move no
+/// staked asset — matching by lock alone (no legitimate non-treasury cell carries
+/// this lock).
+fn treasury_present(
+    own_type_hash: &[u8; 32],
+    treasury_lock_code_hash: &[u8; 32],
+    source: Source,
+) -> Result<bool, i8> {
+    let mut i = 0usize;
+    loop {
+        match load_cell_lock(i, source) {
+            Ok(lock) => {
+                if is_treasury_cell(
+                    lock.code_hash().as_slice(),
+                    lock.args().raw_data().as_ref(),
+                    own_type_hash,
+                    treasury_lock_code_hash,
+                ) {
+                    return Ok(true);
+                }
+            }
+            Err(SysError::IndexOutOfBound) => break,
+            Err(_) => return Err(ERROR_SYSCALL),
+        }
+        i += 1;
+    }
+    Ok(false)
 }
 
 /// Sum staked-asset amounts in `source`. `treasury_only` selects treasury vs
@@ -595,6 +691,7 @@ fn sum_staked_asset(
     source: Source,
     own_type_hash: &[u8; 32],
     asset_type_hash: &[u8; 32],
+    treasury_lock_code_hash: &[u8; 32],
     treasury_only: bool,
 ) -> Result<u128, i8> {
     let mut total: u128 = 0;
@@ -607,6 +704,7 @@ fn sum_staked_asset(
                     lock.code_hash().as_slice(),
                     lock.args().raw_data().as_ref(),
                     own_type_hash,
+                    treasury_lock_code_hash,
                 );
                 if is_treasury == treasury_only {
                     let data = load_cell_data(i, source).map_err(|_| ERROR_SYSCALL)?;
@@ -626,22 +724,46 @@ fn sum_staked_asset(
     Ok(total)
 }
 
-/// Net staked asset flowing from depositor cells (inputs − outputs).
-fn depositor_net_asset(own_type_hash: &[u8; 32], asset_type_hash: &[u8; 32]) -> Result<i128, i8> {
-    let inp = sum_staked_asset(Source::Input, own_type_hash, asset_type_hash, false)? as i128;
-    let out = sum_staked_asset(Source::Output, own_type_hash, asset_type_hash, false)? as i128;
-    Ok(inp - out)
+/// Σ(inputs) and Σ(outputs) of staked asset in depositor (non-treasury) cells,
+/// both u128. Unsigned so callers fix the flow direction explicitly.
+fn depositor_io(
+    own_type_hash: &[u8; 32],
+    asset_type_hash: &[u8; 32],
+    treasury_lock_code_hash: &[u8; 32],
+) -> Result<(u128, u128), i8> {
+    let inp = sum_staked_asset(
+        Source::Input,
+        own_type_hash,
+        asset_type_hash,
+        treasury_lock_code_hash,
+        false,
+    )?;
+    let out = sum_staked_asset(
+        Source::Output,
+        own_type_hash,
+        asset_type_hash,
+        treasury_lock_code_hash,
+        false,
+    )?;
+    Ok((inp, out))
 }
 
 /// The sole TreasuryCell balance in `source`: a cell whose lock is
-/// `Script{TREASURY_LOCK_CODE_HASH, args: own_type_hash}` and whose type hash is
-/// the pool's `asset_type_hash`. Errors if missing, ambiguous, or malformed.
+/// `Script{treasury_lock_code_hash, args: own_type_hash}` and whose type hash is
+/// the pool's configured `asset_type_hash`. Errors if missing, ambiguous, or malformed.
 fn treasury_balance(
     own_type_hash: &[u8; 32],
     asset_type_hash: &[u8; 32],
+    treasury_lock_code_hash: &[u8; 32],
     source: Source,
 ) -> Result<u128, i8> {
-    treasury_balance_opt(own_type_hash, asset_type_hash, source)?.ok_or(ERROR_FUNDS_NOT_CONSERVED)
+    treasury_balance_opt(
+        own_type_hash,
+        asset_type_hash,
+        treasury_lock_code_hash,
+        source,
+    )?
+    .ok_or(ERROR_FUNDS_NOT_CONSERVED)
 }
 
 /// Like [`treasury_balance`] but returns `Ok(None)` when no treasury cell is present
@@ -649,6 +771,7 @@ fn treasury_balance(
 fn treasury_balance_opt(
     own_type_hash: &[u8; 32],
     asset_type_hash: &[u8; 32],
+    treasury_lock_code_hash: &[u8; 32],
     source: Source,
 ) -> Result<Option<u128>, i8> {
     let mut found: Option<u128> = None;
@@ -660,6 +783,7 @@ fn treasury_balance_opt(
                     lock.code_hash().as_slice(),
                     lock.args().raw_data().as_ref(),
                     own_type_hash,
+                    treasury_lock_code_hash,
                 ) {
                     match load_cell_type_hash(i, source) {
                         Ok(Some(th)) if &th == asset_type_hash => {}
@@ -684,21 +808,32 @@ fn treasury_balance_opt(
     Ok(found)
 }
 
-/// Net minted amount of a side's share token = Σ outputs − Σ inputs, as i128.
-fn net_minted(own_type_hash: &[u8; 32], side: u8) -> Result<i128, i8> {
-    let out = sum_share(Source::Output, own_type_hash, side)? as i128;
-    let inp = sum_share(Source::Input, own_type_hash, side)? as i128;
-    Ok(out - inp)
+/// Σ(inputs) and Σ(outputs) of a side's share token, both u128. Pure unsigned:
+/// callers compare with an explicit direction, so an amount above `i128::MAX`
+/// can never be misread with the opposite sign (e.g. a mint counted as a burn).
+fn share_io(
+    own_type_hash: &[u8; 32],
+    share_xudt_code_hash: &[u8; 32],
+    side: u8,
+) -> Result<(u128, u128), i8> {
+    let inp = sum_share(Source::Input, own_type_hash, share_xudt_code_hash, side)?;
+    let out = sum_share(Source::Output, own_type_hash, share_xudt_code_hash, side)?;
+    Ok((inp, out))
 }
 
-/// Sum the amounts of share cells matching `(SHARE_XUDT_CODE_HASH, own||side)`.
-fn sum_share(source: Source, own_type_hash: &[u8; 32], side: u8) -> Result<u128, i8> {
+/// Sum the amounts of share cells matching `(share_xudt_code_hash, own||side)`.
+fn sum_share(
+    source: Source,
+    own_type_hash: &[u8; 32],
+    share_xudt_code_hash: &[u8; 32],
+    side: u8,
+) -> Result<u128, i8> {
     let mut total: u128 = 0;
     let mut i = 0usize;
     loop {
         match load_cell_type(i, source) {
             Ok(Some(s)) => {
-                if s.code_hash().as_slice() == &SHARE_XUDT_CODE_HASH[..] {
+                if s.code_hash().as_slice() == &share_xudt_code_hash[..] {
                     let a = s.args().raw_data();
                     if a.len() == 33 && &a[0..32] == own_type_hash && a[32] == side {
                         let data = load_cell_data(i, source).map_err(|_| ERROR_SYSCALL)?;
@@ -758,11 +893,15 @@ fn validate_redeem(prev: &PoolData, next: &PoolData) -> i8 {
                 Some(a) => a,
                 None => return ERROR_POOL_DATA_MALFORMED,
             };
-            let tin = match treasury_balance(&own, &asset, Source::Input) {
+            let treasury_lock = match prev.treasury_lock_code_hash {
+                Some(h) => h,
+                None => return ERROR_POOL_DATA_MALFORMED,
+            };
+            let tin = match treasury_balance(&own, &asset, &treasury_lock, Source::Input) {
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            let tout = match treasury_balance(&own, &asset, Source::Output) {
+            let tout = match treasury_balance(&own, &asset, &treasury_lock, Source::Output) {
                 Ok(v) => v,
                 Err(e) => return e,
             };
@@ -783,18 +922,22 @@ fn validate_redeem(prev: &PoolData, next: &PoolData) -> i8 {
     let refund_1to1 = prev.status == STATUS_VOID
         || (prev.status == STATUS_FINALIZED && prev.winner == WINNER_VOID);
     if refund_1to1 {
-        let bu = match burned(&own, SIDE_UP) {
+        let (up_in, up_out) = match share_io(&own, &prev.share_xudt_code_hash, SIDE_UP) {
             Ok(v) => v,
             Err(e) => return e,
         };
-        let bd = match burned(&own, SIDE_DOWN) {
+        let (down_in, down_out) = match share_io(&own, &prev.share_xudt_code_hash, SIDE_DOWN) {
             Ok(v) => v,
             Err(e) => return e,
         };
-        if bu < 0 || bd < 0 {
-            return ERROR_SHARE_MISMATCH; // no minting on a refund
+        // A refund burns only; neither side may mint.
+        if up_out > up_in || down_out > down_in {
+            return ERROR_SHARE_MISMATCH;
         }
-        let total = (bu + bd) as u128;
+        let total = match (up_in - up_out).checked_add(down_in - down_out) {
+            Some(t) => t,
+            None => return ERROR_SHARE_MISMATCH,
+        };
         return if total == 0 || payout != total {
             ERROR_PAYOUT_MISMATCH // 1:1 principal refund
         } else {
@@ -814,21 +957,23 @@ fn validate_redeem(prev: &PoolData, next: &PoolData) -> i8 {
             } else {
                 SIDE_UP
             };
-            let burned_w = match burned(&own, winner_side) {
+            let (win_in, win_out) = match share_io(&own, &prev.share_xudt_code_hash, winner_side) {
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            let burned_l = match burned(&own, loser_side) {
+            let (lose_in, lose_out) = match share_io(&own, &prev.share_xudt_code_hash, loser_side) {
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            if burned_w <= 0 || burned_l != 0 {
-                return ERROR_SHARE_MISMATCH; // burn only winning shares
+            // Burn only winning shares (strictly positive); loser shares untouched
+            // (no burn, no mint).
+            if win_out >= win_in || lose_in != lose_out {
+                return ERROR_SHARE_MISMATCH;
             }
             if winner_total == 0 {
                 return ERROR_PAYOUT_MISMATCH;
             }
-            let x = burned_w as u128;
+            let x = win_in - win_out;
             let rake = match mul_div_floor(loser_total, prev.rake_bps as u128, 10_000) {
                 Some(v) => v,
                 None => return ERROR_PAYOUT_MISMATCH,
@@ -854,18 +999,13 @@ fn validate_redeem(prev: &PoolData, next: &PoolData) -> i8 {
 /// that consumes the PoolCell but is **not** a deposit/redeem must pin supply
 /// itself — otherwise free winning-side shares could be minted during
 /// activate/resolve (or a void) and redeemed against the treasury.
-fn shares_frozen(own_type_hash: &[u8; 32]) -> Result<(), i8> {
-    if net_minted(own_type_hash, SIDE_UP)? != 0 || net_minted(own_type_hash, SIDE_DOWN)? != 0 {
+fn shares_frozen(own_type_hash: &[u8; 32], share_xudt_code_hash: &[u8; 32]) -> Result<(), i8> {
+    let (up_in, up_out) = share_io(own_type_hash, share_xudt_code_hash, SIDE_UP)?;
+    let (down_in, down_out) = share_io(own_type_hash, share_xudt_code_hash, SIDE_DOWN)?;
+    if up_in != up_out || down_in != down_out {
         return Err(ERROR_SHARE_MISMATCH);
     }
     Ok(())
-}
-
-/// Net burned of a side's share token = Σ inputs − Σ outputs (negative = mint).
-fn burned(own_type_hash: &[u8; 32], side: u8) -> Result<i128, i8> {
-    let inp = sum_share(Source::Input, own_type_hash, side)? as i128;
-    let out = sum_share(Source::Output, own_type_hash, side)? as i128;
-    Ok(inp - out)
 }
 
 /// `floor(a * b / d)` in u128, or `None` on overflow / `d == 0`.
@@ -880,9 +1020,10 @@ fn validate_close() -> i8 {
     // Terminal sweep: the PoolCell is consumed and not recreated. Only a
     // finalized or voided pool may be destroyed (never OPEN/LOCKED/SETTLED — that
     // would strand depositors or pre-empt the contest), and only after the
-    // post-settlement grace, so winners have had time to redeem. *Who* may sweep
-    // is the lock's concern (`pool_admin_lock` creator-escape, since teardown is
-    // not continuation).
+    // post-settlement grace (duration-proportional, so short lanes free their seed
+    // capital quickly), giving winners time to redeem. *Who* may sweep is the
+    // lock's concern (`pool_admin_lock` creator-escape, since teardown is not
+    // continuation).
     let prev = match load_pool(0, Source::GroupInput) {
         Ok(p) => p,
         Err(e) => return e,
@@ -894,7 +1035,8 @@ fn validate_close() -> i8 {
         Ok(n) => n,
         Err(e) => return e,
     };
-    if now <= prev.close_time.saturating_add(CLOSE_GRACE_SECS) {
+    let duration = prev.close_time.saturating_sub(prev.start_time);
+    if now <= prev.close_time.saturating_add(close_grace(duration)) {
         return ERROR_TIME_WINDOW;
     }
     // The PoolCell is in inputs, so `share_xudt` is permissive here too; forbid
@@ -904,7 +1046,7 @@ fn validate_close() -> i8 {
         Ok(Some(h)) => h,
         _ => return ERROR_SYSCALL,
     };
-    if let Err(e) = shares_frozen(&own) {
+    if let Err(e) = shares_frozen(&own, &prev.share_xudt_code_hash) {
         return e;
     }
     0

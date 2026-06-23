@@ -33,6 +33,10 @@ fn bin(name: &str) -> Bytes {
     .into()
 }
 
+fn share_hash() -> [u8; 32] {
+    ckb_testtool::ckb_hash::blake2b_256(bin("share_xudt"))
+}
+
 fn oracle_blob(price: i64, publish_time: u64, feed: [u8; 32]) -> Bytes {
     let mut d = vec![0u8; 152];
     d[0..32].copy_from_slice(&feed);
@@ -48,6 +52,8 @@ fn open_pool(up: u128, down: u128) -> PoolData {
     PoolData {
         variant: VARIANT_CKB,
         asset_type_hash: None,
+        share_xudt_code_hash: share_hash(),
+        treasury_lock_code_hash: None,
         feed_id: FEED_ID,
         oracle_commit: up_down_common::oracle_read::oracle_commit(
             &ORACLE_TYPE_CODE_HASH,
@@ -100,7 +106,9 @@ fn run(
     let pool_out = context.deploy_cell(bin("pool_type"));
     let _share_out = context.deploy_cell(bin("share_xudt"));
     let always_out = context.deploy_cell(ckb_testtool::builtin::ALWAYS_SUCCESS.clone());
-    let lock = context.build_script(&always_out, Bytes::new()).expect("lock");
+    let lock = context
+        .build_script(&always_out, Bytes::new())
+        .expect("lock");
     let pool_type_script = context
         .build_script(&pool_out, Bytes::from(vec![0x22u8; 32]))
         .expect("pool_type");
@@ -144,9 +152,8 @@ fn run(
     if mint > 0 {
         let mut a = own.as_slice().to_vec();
         a.push(SIDE_UP);
-        let share_hash = ckb_testtool::ckb_hash::blake2b_256(bin("share_xudt"));
         let share = Script::new_builder()
-            .code_hash(share_hash.pack())
+            .code_hash(prev.share_xudt_code_hash.pack())
             .hash_type(ScriptHashType::Data1)
             .args(Bytes::from(a).pack())
             .build();

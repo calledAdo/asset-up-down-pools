@@ -6,7 +6,11 @@
 //! Two modes (see `docs/share_xudt-spec.md`):
 //! - MINT/BURN: the owning PoolCell (type hash == args[0..32]) is in inputs ->
 //!   supply may change; amount/side correctness is enforced by `pool_type`.
-//! - TRANSFER: otherwise -> standard xUDT conservation over the script group.
+//! - TRANSFER/BURN: otherwise -> supply may not INCREASE (no mint without the
+//!   PoolCell), but a holder may freely BURN their own shares to reclaim the
+//!   cell's CKB (e.g. a loser cleaning up a worthless position). A standalone burn
+//!   yields only the burner's own cell capacity, never a treasury payout (that
+//!   needs the PoolCell + `pool_type`), so it strands no one.
 
 #![no_std]
 #![cfg_attr(not(test), no_main)]
@@ -54,13 +58,15 @@ pub fn program_entry() -> i8 {
         return 0;
     }
 
-    // TRANSFER: conserve supply across the script group.
+    // TRANSFER/BURN: supply may not increase (no mint without the PoolCell), but a
+    // holder may burn (decrease) freely to reclaim their cell's CKB. Burning is
+    // pure self-forfeiture — it touches no treasury — so it is always safe.
     match (
         sum_amount(Source::GroupInput),
         sum_amount(Source::GroupOutput),
     ) {
-        (Some(i), Some(o)) if i == o => 0,
-        (Some(_), Some(_)) => ERROR_SHARE_SUPPLY_CHANGED,
+        (Some(i), Some(o)) if o <= i => 0,
+        (Some(_), Some(_)) => ERROR_SHARE_SUPPLY_CHANGED, // mint (o > i) forbidden
         _ => ERROR_ENCODING,
     }
 }

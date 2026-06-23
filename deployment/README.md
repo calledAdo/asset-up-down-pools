@@ -1,13 +1,13 @@
 # CKB Up/Down Deployment
 
 Deployment toolbox for the four CKB Up/Down contract binaries. It publishes each
-binary as a code cell, records versioned artifacts, and validates that the deployed
-scripts are mutually consistent. It does **not** create pools — pool creation is a
-recurring runtime action and lives in a separate runtime/keeper layer.
+binary as a code cell and records versioned artifacts. It does **not** create
+pools — pool creation is a recurring runtime action owned by the watcher/keeper,
+which assembles PoolCells from the canonical promoted code versions recorded here.
 
 - `config/` — checked-in per-network deployment intent (build paths + label)
 - `.env` — operator-local RPC endpoints, keys, and controls (gitignored)
-- `artifacts/` — generated deployment outputs (gitignored)
+- `artifacts/` — generated deployment outputs (testnet/mainnet tracked; devnet ignored)
 - `src/` — TypeScript deployment CLI
 
 ## What this toolbox does
@@ -29,9 +29,11 @@ Promotion moves a candidate into the canonical version map:
 
 - `promote:share-xudt`, `promote:treasury-lock`, `promote:pool-admin-lock`, `promote:pool-type`
 
-State deployment (pool creation) selects an explicit canonical version, never
-`latestCandidate` — but that step belongs to the runtime/keeper layer, not this
-toolbox.
+**Pool creation is out of scope.** Creating a live PoolCell is a recurring runtime
+action: the watcher/keeper selects an explicit canonical code version (never
+`latestCandidate`) and assembles the PoolCell — and, for xUDT pools, its
+TreasuryCell — from the artifacts published here. This toolbox stops at publishing
+and promoting code.
 
 ## Script identity policy
 
@@ -41,23 +43,20 @@ path. (`hashType: "data"` pins CKB-VM v0, whose memory model triggers
 `MemWriteOnExecutablePage` on these binaries.) The identity is recorded in each
 artifact so downstream state deployment does not guess.
 
-## The build-order constraint (important)
+## Pool script selection
 
-`pool_type` **embeds the code hashes of `share_xudt` and `treasury_lock`** at build
-time (`crates/up_down/contracts/common/src/constants.rs`) — it derives the UP/DOWN
-share-token types and identifies the TreasuryCell from them. So a `pool_type` binary
-is only valid against the exact leaf binaries whose hashes it embeds.
+`pool_type` no longer embeds the code hashes of `share_xudt` or `treasury_lock`.
+Those hashes are pool config: pool creation writes `share_xudt_code_hash` into every
+PoolData payload and, for xUDT pools, `treasury_lock_code_hash` as well. That lets
+state deployment choose explicit canonical code versions from artifacts without
+rebuilding `pool_type`.
 
-Deploy the leaves first, then `pool_type`:
+Typical deployment order is still:
 
 1. `deploy:share-xudt` → `promote:share-xudt`
 2. `deploy:treasury-lock` → `promote:treasury-lock`
 3. `deploy:pool-admin-lock` → `promote:pool-admin-lock`
-4. `validate:consistency` ← gate before publishing pool-type
-5. `deploy:pool-type` → `promote:pool-type`
-
-If the leaves changed, regenerate the constants and rebuild `pool_type` **before**
-step 4 (otherwise `validate:consistency` fails).
+4. `deploy:pool-type` → `promote:pool-type`
 
 ## Install and build
 
@@ -88,7 +87,7 @@ node --enable-source-maps ./dist/index.js deploy:pool-type --network testnet
 # config/env/build-path checks for a planned action (no side effects)
 node --enable-source-maps ./dist/index.js validate:config deploy:pool-type --network testnet
 
-# build the binaries and verify pool-type embeds the deployed leaf code hashes
+# build the binaries and report their fresh code hashes
 node --enable-source-maps ./dist/index.js validate:consistency --network testnet
 ```
 
@@ -113,4 +112,8 @@ broadcast paths use an explicit fee-rate fallback.
 ## Artifacts
 
 Written under `deployment/artifacts/` as `<network>.<script-family>.json` (e.g.
-`testnet.pool-type.json`). These are local operator state and are gitignored.
+`testnet.pool-type.json`), carrying the `latestCandidate` + canonical `versions` map.
+
+**testnet/mainnet artifacts are committed** (they are the canonical record of the
+deployed code hashes + outpoints, which the watcher/keeper reads to create pools);
+only `devnet*.json` is gitignored, since every operator regenerates devnet locally.

@@ -36,10 +36,10 @@ fn amount(a: u128) -> Bytes {
 /// Shared fixtures for an xUDT-variant pool test.
 struct Env {
     context: Context,
-    lock: Script,         // always-success (cells' generic lock)
-    pool_type: Script,    // pool_type with a fixed pool_id arg
-    own: [u8; 32],        // pool_type script hash
-    asset_type: Script,   // the staked xUDT's type (always-success as type)
+    lock: Script,       // always-success (cells' generic lock)
+    pool_type: Script,  // pool_type with a fixed pool_id arg
+    own: [u8; 32],      // pool_type script hash
+    asset_type: Script, // the staked xUDT's type (always-success as type)
     treasury_lock: Script,
     share_code: [u8; 32],
 }
@@ -105,9 +105,14 @@ fn xudt_pool(asset: [u8; 32], up: u128, down: u128, status: u8, winner: u8) -> P
     PoolData {
         variant: VARIANT_XUDT,
         asset_type_hash: Some(asset),
+        share_xudt_code_hash: ckb_testtool::ckb_hash::blake2b_256(bin("share_xudt")),
+        treasury_lock_code_hash: Some(ckb_testtool::ckb_hash::blake2b_256(bin("treasury_lock"))),
         feed_id: [0x11; 32],
         oracle_commit: up_down_common::oracle_read::oracle_commit(
-            &ORACLE_TYPE_CODE_HASH, &GUARDIAN_SET_TYPE_HASH, PYTH_EMITTER_CHAIN, &PYTH_EMITTER_ADDRESS,
+            &ORACLE_TYPE_CODE_HASH,
+            &GUARDIAN_SET_TYPE_HASH,
+            PYTH_EMITTER_CHAIN,
+            &PYTH_EMITTER_ADDRESS,
         ),
         start_time: START,
         close_time: START + 900,
@@ -383,21 +388,23 @@ fn oracle_blob(price: i64, publish_time: u64, feed: [u8; 32]) -> Bytes {
     d.into()
 }
 
-/// Drive an xUDT-variant ACTIVATE (OPEN→LOCKED) with a TreasuryCell present in
-/// inputs and outputs. The treasury is non-trading here, so `phase_frozen` must
-/// conserve it: a `treasury_out != treasury_in` drain has to be rejected even
-/// though the oracle/price transition is otherwise valid.
+/// Drive an xUDT-variant ACTIVATE (OPEN→LOCKED). A transition moves no staked
+/// asset, so `phase_frozen` now forbids the TreasuryCell from the transaction on
+/// *both* sides: the clean activation carries no treasury, and attaching one in
+/// inputs (it could be drained) or outputs (a phantom would later break
+/// redeem/close) must be rejected. `treasury_in`/`treasury_out` optionally attach a
+/// TreasuryCell on that side; a funder input keeps capacity covered so the only
+/// possible failure is the treasury check.
 fn run_xudt_activate(
     e: &mut Env,
-    treasury_in: u128,
-    treasury_out: u128,
+    treasury_in: Option<u128>,
+    treasury_out: Option<u128>,
 ) -> Result<u64, ckb_testtool::ckb_error::Error> {
     let asset = e.asset_hash();
     let pub_t = START + 5;
     let price: i64 = 50_000;
 
-    let prev = xudt_pool(asset, 100, 50, STATUS_OPEN, SIDE_UNDECIDED);
-    let mut prev = prev;
+    let mut prev = xudt_pool(asset, 100, 50, STATUS_OPEN, SIDE_UNDECIDED);
     prev.start_price = 0;
     prev.settle_price = 0;
     prev.used_pt = 0;
@@ -422,8 +429,6 @@ fn run_xudt_activate(
     let oracle_dep = CellDep::new_builder().out_point(oracle_out).build();
 
     let pool_cap = e.cap(200 * CKB);
-    let tre_cap = e.cap(200 * CKB);
-
     let pool_in = e.context.create_cell(
         CellOutput::new_builder()
             .capacity(pool_cap.clone())
@@ -432,13 +437,14 @@ fn run_xudt_activate(
             .build(),
         prev.to_bytes().into(),
     );
-    let tre_in = e.context.create_cell(
+    // Plain funder input so a treasury output is capacity-covered and the only
+    // possible failure cause is the treasury check.
+    let funder_in = e.context.create_cell(
         CellOutput::new_builder()
-            .capacity(tre_cap.clone())
-            .lock(e.treasury_lock.clone())
-            .type_(Some(e.asset_type.clone()).pack())
+            .capacity(e.cap(400 * CKB))
+            .lock(e.lock.clone())
             .build(),
-        amount(treasury_in),
+        Bytes::new(),
     );
 
     let pool_o = CellOutput::new_builder()
@@ -446,36 +452,64 @@ fn run_xudt_activate(
         .lock(e.lock.clone())
         .type_(Some(e.pool_type.clone()).pack())
         .build();
-    let tre_o = CellOutput::new_builder()
-        .capacity(tre_cap)
-        .lock(e.treasury_lock.clone())
-        .type_(Some(e.asset_type.clone()).pack())
-        .build();
 
-    let tx = TransactionBuilder::default()
+    let mut builder = TransactionBuilder::default()
         .input(CellInput::new_builder().previous_output(pool_in).build())
-        .input(CellInput::new_builder().previous_output(tre_in).build())
+        .input(CellInput::new_builder().previous_output(funder_in).build())
         .output(pool_o)
-        .output(tre_o)
         .output_data(Bytes::from(next.to_bytes()).pack())
-        .output_data(amount(treasury_out).pack())
-        .cell_dep(oracle_dep)
-        .build();
-    let tx = e.context.complete_tx(tx);
+        .cell_dep(oracle_dep);
+
+    if let Some(bal) = treasury_in {
+        let tre_in = e.context.create_cell(
+            CellOutput::new_builder()
+                .capacity(e.cap(200 * CKB))
+                .lock(e.treasury_lock.clone())
+                .type_(Some(e.asset_type.clone()).pack())
+                .build(),
+            amount(bal),
+        );
+        builder = builder.input(CellInput::new_builder().previous_output(tre_in).build());
+    }
+    if let Some(bal) = treasury_out {
+        let tre_o = CellOutput::new_builder()
+            .capacity(e.cap(200 * CKB))
+            .lock(e.treasury_lock.clone())
+            .type_(Some(e.asset_type.clone()).pack())
+            .build();
+        builder = builder.output(tre_o).output_data(amount(bal).pack());
+    }
+
+    let tx = e.context.complete_tx(builder.build());
     e.context.verify_tx(&tx, MAX_CYCLES)
 }
 
 #[test]
-fn xudt_activate_conserves_treasury() {
+fn xudt_activate_without_treasury_succeeds() {
     let mut e = Env::new();
-    assert!(run_xudt_activate(&mut e, 150, 150).is_ok());
+    assert!(run_xudt_activate(&mut e, None, None).is_ok());
 }
 
 #[test]
-fn xudt_activate_treasury_drain_fails() {
+fn xudt_activate_with_balanced_treasury_fails() {
     let mut e = Env::new();
-    // Same otherwise-valid activation, but the TreasuryCell is drained.
-    assert!(run_xudt_activate(&mut e, 150, 100).is_err());
+    // Even a perfectly balanced carry-through is now rejected: the treasury must
+    // stay out of a transition entirely.
+    assert!(run_xudt_activate(&mut e, Some(150), Some(150)).is_err());
+}
+
+#[test]
+fn xudt_activate_treasury_input_only_fails() {
+    let mut e = Env::new();
+    assert!(run_xudt_activate(&mut e, Some(150), None).is_err());
+}
+
+#[test]
+fn xudt_activate_phantom_treasury_output_fails() {
+    let mut e = Env::new();
+    // A phantom treasury output would later break redeem/close (which require
+    // exactly one treasury).
+    assert!(run_xudt_activate(&mut e, None, Some(150)).is_err());
 }
 
 #[test]
