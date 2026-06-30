@@ -1,0 +1,56 @@
+{
+  "name": "ckb-up-down-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the CKB Up/Down parimutuel prediction pools.",
+  "license": "MIT",
+  "author": "calledAdo <destinyadokiye8@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/calledAdo/asset-up-down-pools.git",
+    "directory": "packages/game-sdk"
+  },
+  "keywords": ["ckb", "nervos", "parimutuel", "prediction-market", "up-down", "sdk"],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./presets": {
+      "types": "./dist/presets/index.d.ts",
+      "import": "./dist/presets/index.js"
+    },
+    "./tx": {
+      "types": "./dist/tx/index.d.ts",
+      "import": "./dist/tx/index.js"
+    },
+    "./ckb": {
+      "types": "./dist/ckb/index.d.ts",
+      "import": "./dist/ckb/index.js"
+    },
+    "./oracle": {
+      "types": "./dist/oracle/index.d.ts",
+      "import": "./dist/oracle/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node tests/poolData.fixture.mjs && node tests/oracleCommit.fixture.mjs && node tests/scripts.fixture.mjs && node tests/payout.fixture.mjs && node tests/cells.fixture.mjs && node tests/txPlumbing.fixture.mjs && node tests/txBuilders.fixture.mjs && node tests/txSettle.fixture.mjs && node tests/txKeeper.fixture.mjs && node tests/clientApi.fixture.mjs && node tests/oracleAdapter.fixture.mjs && node tests/assetResolve.fixture.mjs",
+    "test:integration:devnet": "npm run build && node --env-file=../../deployment/.env tests/integration/devnet/create-readback.test.mjs"
+  },
+  "dependencies": {
+    "@ckb-ccc/core": "^1.12.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
