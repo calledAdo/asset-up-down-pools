@@ -156,11 +156,14 @@ test("Timeline keeps one outstanding wake per pool or cadence and buckets same-t
   assert.equal(clearCalls.length, 1, "empty slot timer is cleared");
 
   timeline.scheduleCreate(cadence(), 1600n);
-  const createSlot = timeline.snapshot().slots.find((s) => s.dueTime === 1600n);
+  const createSlot = timeline.snapshot().slots.find((s) => s.dueTime === 1585n);
   assert.equal(createSlot.entries[0].kind, "create");
+  assert.equal(createSlot.entries[0].boundary, 1600n);
+  assert.equal(timers.get(createSlot.timerId).ms, 585_000);
 
   timers.get(createSlot.timerId).fn();
   assert.equal(fired.length, 1);
-  assert.equal(fired[0].dueTime, 1600n);
+  assert.equal(fired[0].dueTime, 1585n);
   assert.equal(fired[0].entries[0].kind, "create");
+  assert.equal(fired[0].entries[0].boundary, 1600n);
 });

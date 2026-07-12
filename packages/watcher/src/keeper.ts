@@ -81,7 +81,7 @@ export class Keeper {
     const createEntries = entries.filter((e): e is Extract<WakeEntry, { kind: "create" }> => e.kind === "create");
 
     await this.handlePoolEntries(poolEntries, now);
-    for (const entry of createEntries) await this.handleCreateEntry(entry.cadence, dueTime, now);
+    for (const entry of createEntries) await this.handleCreateEntry(entry.cadence, entry.boundary, now);
   }
 
   private async handlePoolEntries(

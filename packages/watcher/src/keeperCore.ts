@@ -150,7 +150,7 @@ function transition(kind: KeeperTransitionKind, pool: PoolView, oracle: OracleTi
 }
 
 export type WakeEntry =
-  | { kind: "create"; cadence: Cadence }
+  | { kind: "create"; cadence: Cadence; boundary: bigint }
   | { kind: "pool"; poolId: Hex };
 
 export interface TimelineDeps<TimerId = NodeJS.Timeout> {
@@ -178,10 +178,11 @@ export class Timeline<TimerId = NodeJS.Timeout> {
     this.poolIndex.set(poolId, dueTime);
   }
 
-  scheduleCreate(cadence: Cadence, dueTime: bigint): void {
+  scheduleCreate(cadence: Cadence, boundary: bigint): void {
     this.removeCreate(cadence.laneKey);
-    this.insert(dueTime, { kind: "create", cadence });
-    this.cadenceIndex.set(cadence.laneKey, dueTime);
+    const fireTime = cadence.createFireTime(boundary);
+    this.insert(fireTime, { kind: "create", cadence, boundary });
+    this.cadenceIndex.set(cadence.laneKey, fireTime);
   }
 
   removePool(poolId: Hex): void {
