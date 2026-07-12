@@ -5,6 +5,22 @@ binary as a code cell and records versioned artifacts. It does **not** create
 pools — pool creation is a recurring runtime action owned by the watcher/keeper,
 which assembles PoolCells from the canonical promoted code versions recorded here.
 
+This follows the **lean oracle deployment format** (see the `lean_oracle` repo):
+the `latestCandidate` + numeric `versions` artifact model, `promote:*` to
+canonicalize a candidate, `data2` raw-blob script identity, and `validate:config`
+preflight. The one deliberate divergence: lean oracle also performs **state
+deployments** (its `deploy:oracle` / `deploy:guardian-set` create live singleton
+cells); we have no such step because our only stateful cells (pools) are created
+at runtime by the keeper.
+
+**The oracle binding is out of scope here — it is owned by the watcher.** Our
+pools depend on an *external* lean-oracle oracle cell, bound via
+`oracle_commit = H(oracle_code_hash ‖ guardian_set_type_hash ‖ emitter_chain ‖
+emitter_address)` plus that cell's dep/header coordinates. Those values are
+operational config, recorded in the watcher's per-lane `oracleIdentity` (see
+`packages/watcher`), not in this toolbox. This toolbox publishes only *our* code
+and never imports the lean oracle repo (the decoupling rule).
+
 - `config/` — checked-in per-network deployment intent (build paths + label)
 - `.env` — operator-local RPC endpoints, keys, and controls (gitignored)
 - `artifacts/` — generated deployment outputs (testnet/mainnet tracked; devnet ignored)

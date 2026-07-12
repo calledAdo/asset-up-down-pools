@@ -6,8 +6,8 @@ DOWN side of a timed pool and receive fungible **xUDT share tokens**; the pool i
 at `start_time` and resolved at `close_time` from authenticated oracle prices, and winners
 redeem pro-rata against the losing side — fully on-chain, no custodian, no protocol liquidity.
 
-> Status: on-chain contract layer complete and tested (70 integration tests). Off-chain
-> tooling (deployment, SDK, web UI) not built yet. Testnet play-to-earn target.
+> Status: on-chain contract layer, deployment toolbox, and SDK primitives are under active
+> test. Testnet play-to-earn target.
 
 ## Layout
 
