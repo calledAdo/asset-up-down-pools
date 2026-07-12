@@ -28,6 +28,18 @@ export { OracleWorker, type OracleWorkerDeps } from "./oracle/worker.js";
 export { Mutex, noopMutex } from "./mutex.js";
 export { loadLeanNetwork, oracleIdentityOf } from "./oracle/leanNetwork.js";
 export { plan, nextKeeperWake, type PlanInput } from "./planner.js";
+export {
+  Cadence,
+  Timeline,
+  decide,
+  nextWakeTime,
+  voidTimeOfPool,
+  closeTimeOfPool,
+  type KeeperAction,
+  type KeeperTransitionKind,
+  type WakeEntry,
+  type TimelineDeps,
+} from "./keeperCore.js";
 export { type Action, type CreateAction, type TransitionAction, type CloseAction, needsTick } from "./actions.js";
 export { openDb, type WatcherDb, type PoolRow, type TxLogRow } from "./db/db.js";
 export { poolToRow, indexOnce, type IndexContext } from "./indexer.js";
