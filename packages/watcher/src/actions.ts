@@ -20,7 +20,7 @@ export interface CreateAction {
 
 /** An oracle-driven transition of an existing pool. */
 export interface TransitionAction {
-  kind: "activate" | "resolve" | "finalize";
+  kind: "activate" | "correct-start" | "resolve" | "correct-settle" | "finalize";
   poolId: Hex;
   feedId: Hex;
   /** The tick must have `publish_time >= minPublishTime` (start/close/void boundary). */
@@ -37,5 +37,11 @@ export type Action = CreateAction | TransitionAction | CloseAction;
 
 /** Whether an action needs an oracle tick (and is skipped without one). */
 export function needsTick(action: Action): action is TransitionAction {
-  return action.kind === "activate" || action.kind === "resolve" || action.kind === "finalize";
+  return (
+    action.kind === "activate" ||
+    action.kind === "correct-start" ||
+    action.kind === "resolve" ||
+    action.kind === "correct-settle" ||
+    action.kind === "finalize"
+  );
 }

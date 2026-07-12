@@ -46,6 +46,7 @@ export { poolToRow, indexOnce, type IndexContext } from "./indexer.js";
 export {
   execute,
   executeBatch,
+  executeDecisions,
   type ExecContext,
   type ExecResult,
   type KeeperLike,

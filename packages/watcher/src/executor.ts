@@ -7,13 +7,14 @@
 //! and are skipped (logged) when none is available yet.
 
 import type { Hex, Script } from "ckb-up-down-sdk";
-import type { OracleTick, PoolAsset } from "ckb-up-down-sdk/tx";
+import type { OracleTick, PoolAsset, TransitionKind } from "ckb-up-down-sdk/tx";
 
 import type { Action, TransitionAction } from "./actions.js";
 import { laneOracleCommit } from "./config.js";
 import type { WatcherDb } from "./db/db.js";
 import { needsTick } from "./actions.js";
 import type { OracleSource } from "./oracle/source.js";
+import type { KeeperAction } from "./keeperCore.js";
 
 /** Minimal tx shape the executor passes around (CCC `Transaction` satisfies it). */
 export type Tx = unknown;
@@ -31,12 +32,14 @@ export interface KeeperLike {
     rakeBps: number;
   }): Promise<Tx>;
   draftActivate(p: { poolId: Hex; oracle: OracleTick }): Promise<Tx>;
+  draftCorrectStart(p: { poolId: Hex; oracle: OracleTick }): Promise<Tx>;
   draftResolve(p: { poolId: Hex; oracle: OracleTick }): Promise<Tx>;
+  draftCorrectSettle(p: { poolId: Hex; oracle: OracleTick }): Promise<Tx>;
   draftFinalize(p: { poolId: Hex; oracle: OracleTick }): Promise<Tx>;
   draftClose(p: { poolId: Hex; creatorLock: Script }): Promise<Tx>;
   /** Fold several boundary-coincident transitions (sharing an oracle cell) into one tx. */
   draftTransitionBatch(
-    items: { poolId: Hex; kind: TransitionAction["kind"]; oracle: OracleTick }[],
+    items: { poolId: Hex; kind: TransitionKind; oracle: OracleTick }[],
   ): Promise<Tx>;
   complete(tx: Tx, signer: SignerLike, options?: { feeRate?: bigint }): Promise<Tx>;
 }
@@ -79,7 +82,7 @@ export interface ExecContext {
 }
 
 export interface ExecResult {
-  action: Action["kind"];
+  action: string;
   skipped: boolean;
   reason?: string;
   txHash?: Hex;
@@ -133,7 +136,7 @@ export async function execute(action: Action, ctx: ExecContext): Promise<ExecRes
 
 /** A transition action paired with the oracle tick that backs it. */
 interface BatchItem {
-  action: TransitionAction;
+  action: { kind: TransitionKind; poolId: Hex; feedId: Hex };
   tick: OracleTick;
 }
 
@@ -193,6 +196,48 @@ export async function executeBatch(
   return results;
 }
 
+/**
+ * Execute actions emitted by the new keeper decision core. Transition actions
+ * already carry the exact current oracle cell chosen by `decide`, so this path
+ * does not ask `OracleSource` to search by min publish time.
+ */
+export async function executeDecisions(
+  actions: KeeperAction[],
+  ctx: ExecContext,
+): Promise<ExecResult[]> {
+  const transitions: BatchItem[] = [];
+  const results: ExecResult[] = [];
+
+  for (const action of actions) {
+    if (action.kind === "close") {
+      results.push(await execute(action, ctx));
+      continue;
+    }
+    if (ctx.db.hasOpenAction(action.poolId, action.kind)) {
+      results.push({ action: action.kind, skipped: true, reason: "in-flight (pool action)" });
+      continue;
+    }
+    transitions.push({
+      action: { kind: action.kind, poolId: action.poolId, feedId: action.feedId },
+      tick: action.oracle,
+    });
+  }
+
+  const groups = new Map<string, BatchItem[]>();
+  for (const it of transitions) {
+    const op = it.tick.cellDep.outPoint;
+    const key = `${it.action.feedId.toLowerCase()}:${op.txHash}:${op.index}`;
+    const group = groups.get(key);
+    if (group) group.push(it);
+    else groups.set(key, [it]);
+  }
+
+  for (const group of groups.values()) {
+    results.push(...(await runBatchGroup(group, ctx)));
+  }
+  return results;
+}
+
 /** Build + broadcast one group as a single tx; on failure, split into singletons. */
 async function runBatchGroup(group: BatchItem[], ctx: ExecContext): Promise<ExecResult[]> {
   const log = ctx.log ?? (() => {});
@@ -246,8 +291,12 @@ async function buildDraft(action: Action, tick: OracleTick | null, ctx: ExecCont
     }
     case "activate":
       return ctx.keeper.draftActivate({ poolId: action.poolId, oracle: tick! });
+    case "correct-start":
+      return ctx.keeper.draftCorrectStart({ poolId: action.poolId, oracle: tick! });
     case "resolve":
       return ctx.keeper.draftResolve({ poolId: action.poolId, oracle: tick! });
+    case "correct-settle":
+      return ctx.keeper.draftCorrectSettle({ poolId: action.poolId, oracle: tick! });
     case "finalize":
       return ctx.keeper.draftFinalize({ poolId: action.poolId, oracle: tick! });
     case "close":

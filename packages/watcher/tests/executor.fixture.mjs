@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { execute, executeBatch, openDb, StubOracleSource } from "../dist/index.js";
+import { execute, executeBatch, executeDecisions, openDb, StubOracleSource } from "../dist/index.js";
 
 const FEED = "0x" + "fe".repeat(32);
 const POOL = "0x" + "01".repeat(32);
@@ -51,6 +51,13 @@ const tickOracle = {
     cellDep: { outPoint: { txHash: "0x" + "cd".repeat(32), index: 0 }, depType: "code" },
   }),
 };
+
+const oracleTick = (feedId, publishTimeUnix, txHash = "0x" + "cd".repeat(32)) => ({
+  feedId,
+  price: 12345n,
+  publishTimeUnix,
+  cellDep: { outPoint: { txHash, index: 0 }, depType: "code" },
+});
 
 function ctx(over = {}) {
   return {
@@ -238,4 +245,29 @@ test("batch: refresh (cache clear) runs before each build", async () => {
   const c = ctx({ oracle: tickOracle, refresh: async () => { refreshes += 1; } });
   await executeBatch([resolveA, activateA], c);
   assert.equal(refreshes, 1, "one build for the one group");
+});
+
+test("decisions: pre-resolved correction actions batch without oracle lookup", async () => {
+  let oracleReads = 0;
+  const c = ctx({
+    oracle: {
+      getTickAtOrAfter: async () => {
+        oracleReads++;
+        return null;
+      },
+    },
+  });
+  const rs = await executeDecisions(
+    [
+      { kind: "correct-start", poolId: POOL, feedId: FEED, oracle: oracleTick(FEED, 1600n) },
+      { kind: "correct-settle", poolId: POOL2, feedId: FEED, oracle: oracleTick(FEED, 1900n) },
+    ],
+    c,
+  );
+  assert.equal(oracleReads, 0, "decision execution uses the tick chosen by decide()");
+  assert.equal(rs.length, 2);
+  assert.ok(rs.every((r) => !r.skipped && r.txHash === TXH));
+  const batches = c.keeper.calls.filter((k) => k.name === "batch");
+  assert.equal(batches.length, 1);
+  assert.deepEqual(batches[0].items.map((it) => it.kind), ["correct-start", "correct-settle"]);
 });
