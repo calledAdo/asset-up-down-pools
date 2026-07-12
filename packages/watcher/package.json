@@ -1,0 +1,33 @@
+{
+  "name": "ckb-up-down-watcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Operational backend for CKB Up/Down: rolling-pool keeper, chain indexer, and frontend API.",
+  "license": "MIT",
+  "author": "calledAdo <destinyadokiye8@gmail.com>",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --enable-source-maps dist/bin/server.js",
+    "test": "npm run build && node tests/grace.fixture.mjs && node tests/planner.fixture.mjs && node tests/indexer.fixture.mjs && node tests/executor.fixture.mjs && node tests/reconcile.fixture.mjs && node tests/api.fixture.mjs && node tests/oracle.fixture.mjs && node tests/mutex.fixture.mjs",
+    "test:integration:devnet": "npm run build && node --env-file=.env tests/integration/devnet/smoke.test.mjs"
+  },
+  "dependencies": {
+    "@ckb-ccc/core": "^1.12.2",
+    "better-sqlite3": "^11.8.0",
+    "ckb-up-down-sdk": "file:../game-sdk",
+    "fastify": "^5.2.0",
+    "lean-oracle-sdk": "file:../../../lean_oracle/packages/sdk"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,71 @@
+# Role-split deployment: one indexer (the sole projection-DB writer + the API the
+# frontend reads) and one keeper per cadence, each with its OWN wallet so they
+# never contend over the same on-chain cells.
+#   docker compose --env-file .env up --build
+# Build context is the repo root so the file:../game-sdk dependency resolves.
+#
+# Each service runs the same image; WATCHER_ROLE + WATCHER_LANES + the wallet key
+# pick what it does. Pointing at a host offckb devnet: set
+# WATCHER_CKB_RPC_URL=http://host.docker.internal:8114 in .env.
+
+x-watcher: &watcher
+  build:
+    context: ../..
+    dockerfile: packages/watcher/Dockerfile
+  env_file: .env
+  volumes:
+    - watcher-data:/app/packages/watcher/data
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+
+services:
+  # The single projection-DB writer + the frontend API. Indexes every lane.
+  indexer:
+    <<: *watcher
+    environment:
+      WATCHER_ROLE: indexer
+      WATCHER_DB_PATH: /app/packages/watcher/data/index.db
+    ports:
+      - "${WATCHER_API_PORT:-8080}:8080"
+
+  # One keeper per cadence. Each needs its OWN funded wallet (override
+  # WATCHER_CREATOR_PRIVATE_KEY per service) and writes only its private tx_log DB.
+  keeper-5m:
+    <<: *watcher
+    environment:
+      WATCHER_ROLE: keeper
+      WATCHER_LANES: BTC-5m
+      WATCHER_POLL_SECS: 5
+      WATCHER_DB_PATH: /app/packages/watcher/data/keeper-5m.db
+      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_5M:-${WATCHER_CREATOR_PRIVATE_KEY}}
+
+  keeper-15m:
+    <<: *watcher
+    environment:
+      WATCHER_ROLE: keeper
+      WATCHER_LANES: BTC-15m
+      WATCHER_POLL_SECS: 15
+      WATCHER_DB_PATH: /app/packages/watcher/data/keeper-15m.db
+      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_15M:-${WATCHER_CREATOR_PRIVATE_KEY}}
+
+  keeper-1h:
+    <<: *watcher
+    environment:
+      WATCHER_ROLE: keeper
+      WATCHER_LANES: BTC-1h
+      WATCHER_POLL_SECS: 60
+      WATCHER_DB_PATH: /app/packages/watcher/data/keeper-1h.db
+      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_1H:-${WATCHER_CREATOR_PRIVATE_KEY}}
+
+  keeper-1d:
+    <<: *watcher
+    environment:
+      WATCHER_ROLE: keeper
+      WATCHER_LANES: BTC-1d
+      WATCHER_POLL_SECS: 300
+      WATCHER_DB_PATH: /app/packages/watcher/data/keeper-1d.db
+      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_1D:-${WATCHER_CREATOR_PRIVATE_KEY}}
+
+volumes:
+  watcher-data:

@@ -1,0 +1,73 @@
+{
+  "name": "devnet",
+  "hermesBaseUrl": "https://hermes.pyth.network",
+  "ckbJsonRpcUrl": "http://127.0.0.1:8114",
+  "deployment": {
+    "defaultPublicOracleLock": {
+      "script": {
+        "codeHash": "0x5554bc20c9f3dbb8d1d7a6591b1b2ceeb0bbee822804635ee168911a440a111c",
+        "hashType": "data2",
+        "args": "0x7de82d61a7eb2ec82b0dc653e558ba120efcbfbb44dac87c12972d05bf250653"
+      },
+      "codeDep": {
+        "outPoint": {
+          "txHash": "0x0a55ba7d0b94ed37e13a2785661a9e37c16df963f6368240a158dfa6a2979747",
+          "index": 0
+        },
+        "depType": "code"
+      }
+    },
+    "oracleType": {
+      "codeHash": "0x10c9bcc3af00fc3728cb95d5e14ec882716af5f531a010852526ce784f6958ec",
+      "hashType": "data2",
+      "codeDep": {
+        "outPoint": {
+          "txHash": "0xf04ed6a320672121532e0df4038e689fcdce2bc309d773926d14a219b24dd8a0",
+          "index": 0
+        },
+        "depType": "code"
+      }
+    },
+    "oracleTypeVersions": {
+      "1": {
+        "codeHash": "0x2277560d62a11a92084654b67848ea893fcf3c1880e20a3ce9c0c19d0ee27dc3",
+        "hashType": "data2",
+        "codeDep": {
+          "outPoint": {
+            "txHash": "0x2b00f88c9be65be32d122213ecf9fb0f70801f7bbdb7dde8b543867461425234",
+            "index": 0
+          },
+          "depType": "code"
+        }
+      },
+      "2": {
+        "codeHash": "0x10c9bcc3af00fc3728cb95d5e14ec882716af5f531a010852526ce784f6958ec",
+        "hashType": "data2",
+        "codeDep": {
+          "outPoint": {
+            "txHash": "0xf04ed6a320672121532e0df4038e689fcdce2bc309d773926d14a219b24dd8a0",
+            "index": 0
+          },
+          "depType": "code"
+        }
+      }
+    },
+    "guardianSetType": {
+      "codeHash": "0x57bddf3d57ea45c88ab68d0de706bbaecd68895fd6062b099626deb157100119",
+      "hashType": "data2",
+      "args": "0xf6b76663da8fc7d2bc21be120d0f62179c644551c4975e814116929af426c922",
+      "typeHash": "0xf1e47cb23af36f2b8662f510e0bbb2cbf5a7669886cb96574a95a67751693b98",
+      "codeDep": {
+        "outPoint": {
+          "txHash": "0xa294c990d03589716d07b5c89d817d8c56b80d96b48f090ccaafabaa90f66e74",
+          "index": 0
+        },
+        "depType": "code"
+      }
+    },
+    "pythEmitter": {
+      "chain": 26,
+      "address": "0xe101faedac5851e32b9b23b5f9411a8c2bac4aae3ed4dd7b811dd1a72ea4aa71"
+    }
+  }
+}
