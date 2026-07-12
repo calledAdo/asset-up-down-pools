@@ -225,10 +225,13 @@ fn deposit_total_overflow_fails() {
 }
 
 #[test]
-fn deposit_after_start_fails() {
+fn deposit_after_start_succeeds_while_open() {
+    // Deposits are gated by STATUS, not the header clock: while the pool is still
+    // OPEN (ACTIVATE has not fired), a deposit is valid even past start_time. The
+    // moment ACTIVATE sets start_price the pool leaves OPEN and deposits stop.
     let mut d = happy();
-    d.now_secs = START + 10; // past the open window
-    assert!(run(d).is_err());
+    d.now_secs = START + 10; // past start_time, but pool is still OPEN
+    assert!(run(d).is_ok());
 }
 
 // Buy UP and DOWN in one tx: up +100, down +30, treasury +130, shares match.

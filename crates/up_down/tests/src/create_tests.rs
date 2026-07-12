@@ -284,15 +284,17 @@ fn create_bad_time_ordering_fails() {
 }
 
 #[test]
-fn create_start_in_past_fails() {
+fn create_start_in_past_succeeds() {
+    // Past window is self-punishing, not unsafe: ACTIVATE just routes to VOID.
+    // CREATE no longer reads the header clock (only start_time < close_time).
     let p = fresh_pool();
-    assert!(run_create(p.clone(), None, p.start_time).is_err());
+    assert!(run_create(p.clone(), None, p.start_time).is_ok());
 }
 
 #[test]
-fn create_close_in_past_fails() {
+fn create_close_in_past_succeeds() {
     let mut p = fresh_pool();
     p.start_time = 2_000_000;
     p.close_time = 2_000_900;
-    assert!(run_create(p.clone(), None, p.close_time).is_err());
+    assert!(run_create(p.clone(), None, p.close_time).is_ok());
 }

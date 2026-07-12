@@ -182,8 +182,8 @@ fn validate_transition() -> i8 {
 // ---- ACTIVATE (provisional start price; same oracle clock) ----------------
 //
 // Activation opens the *start-price contest*: the recorded start tick must lie in
-// (start_time, close_time), and CORRECT-start (LOCKED→LOCKED) may replace it with
-// a strictly earlier one — `used_pt` converges down to the first tick after start.
+// [start_time, close_time), and CORRECT-start (LOCKED→LOCKED) may replace it with
+// a strictly earlier one — `used_pt` converges down to the first tick at/after start.
 // RESOLVE later flips `used_pt` to the settle reference and freezes `start_price`.
 
 fn validate_activate(prev: &PoolData, next: &PoolData) -> i8 {
@@ -201,23 +201,14 @@ fn validate_activate(prev: &PoolData, next: &PoolData) -> i8 {
             if prev.up_total == 0 || prev.down_total == 0 {
                 return ERROR_BAD_STATUS_TRANSITION;
             }
-            // Provisional start tick: strictly after start, before close.
-            if !(oracle.publish_time > prev.start_time && oracle.publish_time < prev.close_time) {
-                return ERROR_ORACLE_BAND;
-            }
-            if next.settle_price != 0 || next.winner != SIDE_UNDECIDED {
-                return ERROR_POOL_DATA_MALFORMED;
-            }
-            if next.start_price != oracle.price || next.used_pt != oracle.publish_time {
-                return ERROR_POOL_DATA_MALFORMED;
-            }
-            0
+            // Provisional start tick: at/after start, before close.
+            set_start_tick(prev, next, &oracle, prev.close_time)
         }
         STATUS_VOID => {
             // Void if one-sided (proven past start so no more deposits) or if the
             // activation window closed un-activated (tick at/after close).
             let one_sided = prev.up_total == 0 || prev.down_total == 0;
-            let past_start = oracle.publish_time > prev.start_time;
+            let past_start = oracle.publish_time >= prev.start_time;
             let past_close = oracle.publish_time >= prev.close_time;
             if !((one_sided && past_start) || past_close) {
                 return ERROR_TIME_WINDOW;
@@ -246,16 +237,8 @@ fn validate_correct_start(prev: &PoolData, next: &PoolData) -> i8 {
         Ok(o) => o,
         Err(e) => return e,
     };
-    if !(oracle.publish_time > prev.start_time && oracle.publish_time < prev.used_pt) {
-        return ERROR_ORACLE_BAND;
-    }
-    if next.settle_price != 0 || next.winner != SIDE_UNDECIDED {
-        return ERROR_POOL_DATA_MALFORMED;
-    }
-    if next.start_price != oracle.price || next.used_pt != oracle.publish_time {
-        return ERROR_POOL_DATA_MALFORMED;
-    }
-    0
+    // Refine to a strictly-earlier in-band tick (start < pub < used_pt).
+    set_start_tick(prev, next, &oracle, prev.used_pt)
 }
 
 // ---- RESOLVE / CONTEST / FINALIZE ----------------------------------------
@@ -282,6 +265,45 @@ fn winner_for(price: i64, start_price: i64) -> u8 {
     } else {
         WINNER_VOID
     }
+}
+
+/// Stamp/refine the START tick onto the pool (ACTIVATE-LOCKED and CORRECT-start).
+/// The tick must lie in `[start_time, upper)` — `upper` is `close_time` for the
+/// initial stamp, or the current `used_pt` for a strictly-earlier correction. The
+/// lower bound is inclusive: a tick at `publish_time == start_time` is the canonical
+/// boundary price and already proves real time reached `start_time`.
+/// Settle state stays empty; `start_price`/`used_pt` are bound to the tick.
+fn set_start_tick(prev: &PoolData, next: &PoolData, oracle: &OracleRead, upper: u64) -> i8 {
+    if !(oracle.publish_time >= prev.start_time && oracle.publish_time < upper) {
+        return ERROR_ORACLE_BAND;
+    }
+    if next.settle_price != 0 || next.winner != SIDE_UNDECIDED {
+        return ERROR_POOL_DATA_MALFORMED;
+    }
+    if next.start_price != oracle.price || next.used_pt != oracle.publish_time {
+        return ERROR_POOL_DATA_MALFORMED;
+    }
+    0
+}
+
+/// Stamp/refine the SETTLE tick onto the pool (RESOLVE-SETTLED and CORRECT-settle).
+/// The tick must lie in `[close_time, upper)` — `upper` is `void_time` for the
+/// initial stamp, or the current `used_pt` for a strictly-earlier correction. The
+/// lower bound is inclusive (a tick at `publish_time == close_time` is the canonical
+/// close price); the upper stays strict so it never bleeds into the next phase.
+/// Caller must have already frozen `start_price`; `settle_price`/`used_pt`/`winner`
+/// are bound to the tick (winner via `winner_for`).
+fn set_settle_tick(prev: &PoolData, next: &PoolData, oracle: &OracleRead, upper: u64) -> i8 {
+    if !(oracle.publish_time >= prev.close_time && oracle.publish_time < upper) {
+        return ERROR_ORACLE_BAND;
+    }
+    if next.settle_price != oracle.price
+        || next.used_pt != oracle.publish_time
+        || next.winner != winner_for(oracle.price, prev.start_price)
+    {
+        return ERROR_POOL_DATA_MALFORMED;
+    }
+    0
 }
 
 /// Common guards for the activation/resolution phases: totals, PoolCell capacity,
@@ -331,7 +353,7 @@ fn validate_resolve(prev: &PoolData, next: &PoolData) -> i8 {
     // From resolution on, the (LOCKED-contested) start price is frozen. RESOLVE
     // flips `used_pt` from the start tick to the settle tick.
     if next.start_price != prev.start_price {
-        return ERROR_FUNDS_NOT_CONSERVED;
+        return ERROR_POOL_DATA_MALFORMED;
     }
 
     let oracle = match find_oracle(prev) {
@@ -341,18 +363,9 @@ fn validate_resolve(prev: &PoolData, next: &PoolData) -> i8 {
 
     match next.status {
         STATUS_SETTLED => {
-            // Provisional resolution: an authentic tick strictly after close and
+            // Provisional resolution: an authentic tick at/after close and
             // before the contest deadline.
-            if !(oracle.publish_time > prev.close_time && oracle.publish_time < void_time) {
-                return ERROR_ORACLE_BAND;
-            }
-            if next.settle_price != oracle.price
-                || next.used_pt != oracle.publish_time
-                || next.winner != winner_for(oracle.price, prev.start_price)
-            {
-                return ERROR_POOL_DATA_MALFORMED;
-            }
-            0
+            set_settle_tick(prev, next, &oracle, void_time)
         }
         STATUS_VOID => {
             // No resolution happened and the window has closed (proven by an
@@ -379,7 +392,7 @@ fn validate_correct_settle(prev: &PoolData, next: &PoolData) -> i8 {
         return e;
     }
     if next.start_price != prev.start_price {
-        return ERROR_FUNDS_NOT_CONSERVED;
+        return ERROR_POOL_DATA_MALFORMED;
     }
     let oracle = match find_oracle(prev) {
         Ok(o) => o,
@@ -387,16 +400,7 @@ fn validate_correct_settle(prev: &PoolData, next: &PoolData) -> i8 {
     };
     // Strictly earlier than the current tick, still after close. (No void_time
     // check needed: used_pt is already < void_time, so pub < used_pt is too.)
-    if !(oracle.publish_time > prev.close_time && oracle.publish_time < prev.used_pt) {
-        return ERROR_ORACLE_BAND;
-    }
-    if next.settle_price != oracle.price
-        || next.used_pt != oracle.publish_time
-        || next.winner != winner_for(oracle.price, prev.start_price)
-    {
-        return ERROR_POOL_DATA_MALFORMED;
-    }
-    0
+    set_settle_tick(prev, next, &oracle, prev.used_pt)
 }
 
 /// FINALIZE (SETTLED -> FINALIZED): latch the result once an authentic tick
@@ -437,12 +441,18 @@ fn validate_create() -> i8 {
         || out.down_total != 0
         || out.start_price != 0
         || out.settle_price != 0
-        || out.used_pt != 0
         || out.start_time >= out.close_time
+        // rake_bps <= RAKE_BPS_MAX is load-bearing, NOT redundant: REDEEM computes
+        // `distributable = loser_total - floor(loser_total * rake_bps / 10_000)`, so
+        // rake_bps > 10_000 would underflow u128. config_unchanged freezes rake_bps
+        // after CREATE, so this is the only place to catch it.
         || out.rake_bps > RAKE_BPS_MAX
     {
         return ERROR_POOL_DATA_MALFORMED;
     }
+    // NOTE: `used_pt` is intentionally NOT checked here. A seeded nonzero value is
+    // harmless — ACTIVATE overwrites it (`used_pt = publish_time`) before any
+    // CORRECT-start can read it, and CORRECT-start cannot fire until LOCKED.
     if out.share_xudt_code_hash == [0u8; 32] {
         return ERROR_POOL_DATA_MALFORMED;
     }
@@ -453,14 +463,11 @@ fn validate_create() -> i8 {
     if out.variant == VARIANT_XUDT && out.treasury_lock_code_hash.map_or(true, |h| h == [0u8; 32]) {
         return ERROR_POOL_DATA_MALFORMED;
     }
-    let now = match now_secs() {
-        Ok(n) => n,
-        Err(e) => return e,
-    };
-    // Pool boundaries must lie in the future at creation.
-    if out.start_time <= now || out.close_time <= now {
-        return ERROR_TIME_WINDOW;
-    }
+    // NOTE: start_time/close_time are NOT required to be in the future. A pool born
+    // with a past window is self-punishing, not unsafe: ACTIVATE needs an oracle tick
+    // in (start_time, close_time); if that window is already gone the pool just routes
+    // to VOID (1:1 refunds). No funds at risk, so the header-clock read is dropped.
+    // (start_time < close_time is still enforced above to forbid a degenerate window.)
     // An xUDT pool must be born with its TreasuryCell: exactly one cell holding the
     // configured asset under this PoolCell's `treasury_lock`, at zero balance. This
     // makes the pool depositable (the first deposit has an input treasury to grow)
@@ -532,14 +539,11 @@ fn validate_type_id_seed() -> i8 {
 }
 
 fn validate_deposit(prev: &PoolData, next: &PoolData) -> i8 {
-    let now = match now_secs() {
-        Ok(n) => n,
-        Err(e) => return e,
-    };
-    // Deposits close at start_time.
-    if now >= prev.start_time {
-        return ERROR_TIME_WINDOW;
-    }
+    // No header-clock gate. Deposits are bounded by the STATUS machine, not the
+    // clock: a deposit only validates on OPEN->OPEN, and ACTIVATE (OPEN->LOCKED)
+    // leaves OPEN the instant `start_price` is set — so "start price set" and
+    // "deposits closed" are the same event. Only CLOSE reads the header clock now;
+    // the entire price phase runs on authenticated oracle time.
     // Price/winner state is untouched while OPEN.
     if next.start_price != prev.start_price
         || next.settle_price != prev.settle_price
@@ -549,43 +553,26 @@ fn validate_deposit(prev: &PoolData, next: &PoolData) -> i8 {
         return ERROR_POOL_DATA_MALFORMED;
     }
 
-    // Either side may rise (neither may fall); the total staked must increase.
-    // A single deposit can buy UP and DOWN at once.
-    if next.up_total < prev.up_total || next.down_total < prev.down_total {
-        return ERROR_FUNDS_NOT_CONSERVED;
-    }
-    let up_d = next.up_total - prev.up_total;
-    let down_d = next.down_total - prev.down_total;
-    // `checked_add`: a wrapping `up_d + down_d` could record an enormous position
-    // while the treasury/capacity only has to rise by the tiny wrapped sum.
-    let total = match up_d.checked_add(down_d) {
+    // OPEN->OPEN covers BOTH deposit and withdrawal — totals may rise OR fall on
+    // either side (a player may add to or pull out of either side, or rebalance,
+    // before the round locks). So there is NO direction constraint. Correctness is a
+    // standing INVARIANT on the output: funds rhyme with up_total+down_total, and each
+    // side's share supply rhymes with that side's total. Anchored at CREATE's zero
+    // state, this holds inductively across every OPEN->OPEN.
+
+    // Sum the output totals once (guard the add against u128 wrap).
+    let next_total = match next.up_total.checked_add(next.down_total) {
         Some(t) => t,
         None => return ERROR_FUNDS_NOT_CONSERVED,
     };
-    if total == 0 {
-        return ERROR_FUNDS_NOT_CONSERVED;
-    }
 
     let own = match load_cell_type_hash(0, Source::GroupInput) {
         Ok(Some(h)) => h,
         _ => return ERROR_SYSCALL,
     };
 
-    // Funds conservation: stake D enters the treasury.
+    // Funds must rhyme with the stored totals.
     match prev.variant {
-        VARIANT_CKB => {
-            let in_cap = match load_cell_capacity(0, Source::GroupInput) {
-                Ok(c) => c as u128,
-                Err(_) => return ERROR_SYSCALL,
-            };
-            let out_cap = match load_cell_capacity(0, Source::GroupOutput) {
-                Ok(c) => c as u128,
-                Err(_) => return ERROR_SYSCALL,
-            };
-            if out_cap < in_cap || out_cap - in_cap != total {
-                return ERROR_FUNDS_NOT_CONSERVED;
-            }
-        }
         VARIANT_XUDT => {
             let asset = match prev.asset_type_hash {
                 Some(a) => a,
@@ -595,24 +582,17 @@ fn validate_deposit(prev: &PoolData, next: &PoolData) -> i8 {
                 Some(h) => h,
                 None => return ERROR_POOL_DATA_MALFORMED,
             };
-            let tin = match treasury_balance(&own, &asset, &treasury_lock, Source::Input) {
-                Ok(v) => v,
-                Err(e) => return e,
-            };
+            // ONE treasury cell, fully visible -> absolute check: its output balance
+            // must equal the output totals exactly. The asset xUDT's OWN type script
+            // already conserves its supply, so a correct treasury balance implies the
+            // matching asset really moved to/from some holder cell — whose holder that
+            // is is not pool_type's concern (the old depositor_io check was redundant
+            // with xUDT conservation, and is removed).
             let tout = match treasury_balance(&own, &asset, &treasury_lock, Source::Output) {
                 Ok(v) => v,
                 Err(e) => return e,
             };
-            if tout < tin || tout - tin != total {
-                return ERROR_FUNDS_NOT_CONSERVED;
-            }
-            // Depositor cells must be the configured staked asset (not a worthless
-            // token); net outflow from non-treasury asset cells funds the stake.
-            let (dep_in, dep_out) = match depositor_io(&own, &asset, &treasury_lock) {
-                Ok(v) => v,
-                Err(e) => return e,
-            };
-            if dep_in < dep_out || dep_in - dep_out != total {
+            if tout != next_total {
                 return ERROR_FUNDS_NOT_CONSERVED;
             }
             // The xUDT PoolCell holds no funds itself; its capacity stays put.
@@ -622,10 +602,38 @@ fn validate_deposit(prev: &PoolData, next: &PoolData) -> i8 {
                 Err(e) => return e,
             }
         }
+        VARIANT_CKB => {
+            // Capacity can't be checked absolutely (it carries the cell's occupied
+            // base plus creator surplus), so bind the signed change to the signed
+            // totals change without any subtraction (works for deposit AND withdraw):
+            //   out_cap + (prev.up+prev.down) == in_cap + (next.up+next.down)
+            let in_cap = match load_cell_capacity(0, Source::GroupInput) {
+                Ok(c) => c as u128,
+                Err(_) => return ERROR_SYSCALL,
+            };
+            let out_cap = match load_cell_capacity(0, Source::GroupOutput) {
+                Ok(c) => c as u128,
+                Err(_) => return ERROR_SYSCALL,
+            };
+            let prev_total = match prev.up_total.checked_add(prev.down_total) {
+                Some(t) => t,
+                None => return ERROR_FUNDS_NOT_CONSERVED,
+            };
+            let lhs = out_cap.checked_add(prev_total);
+            let rhs = in_cap.checked_add(next_total);
+            match (lhs, rhs) {
+                (Some(l), Some(r)) if l == r => {}
+                _ => return ERROR_FUNDS_NOT_CONSERVED,
+            }
+        }
         _ => return ERROR_POOL_DATA_MALFORMED,
     }
 
-    // Share minting: each side's net mint == that side's total delta.
+    // Shares must rhyme with the totals, per side. The script can't see global share
+    // supply (only the cells in this tx), so this is the rearranged Δshares == Δtotal:
+    //   side_out + prev.side_total == side_in + next.side_total
+    // which holds for a MINT (deposit) and a BURN (withdraw) alike, with no signed
+    // subtraction. Anchored at CREATE, it makes side-supply == side-total inductively.
     let (up_in, up_out) = match share_io(&own, &prev.share_xudt_code_hash, SIDE_UP) {
         Ok(v) => v,
         Err(e) => return e,
@@ -634,13 +642,13 @@ fn validate_deposit(prev: &PoolData, next: &PoolData) -> i8 {
         Ok(v) => v,
         Err(e) => return e,
     };
-    // Mint exactly each side's delta: outputs ≥ inputs and (outputs − inputs) == delta.
-    if up_out < up_in
-        || up_out - up_in != up_d
-        || down_out < down_in
-        || down_out - down_in != down_d
-    {
-        return ERROR_SHARE_MISMATCH;
+    let up_l = up_out.checked_add(prev.up_total);
+    let up_r = up_in.checked_add(next.up_total);
+    let down_l = down_out.checked_add(prev.down_total);
+    let down_r = down_in.checked_add(next.down_total);
+    match (up_l, up_r, down_l, down_r) {
+        (Some(ul), Some(ur), Some(dl), Some(dr)) if ul == ur && dl == dr => {}
+        _ => return ERROR_SHARE_MISMATCH,
     }
     0
 }
@@ -683,69 +691,6 @@ fn treasury_present(
         i += 1;
     }
     Ok(false)
-}
-
-/// Sum staked-asset amounts in `source`. `treasury_only` selects treasury vs
-/// depositor (non-treasury) cells; both require `type_hash == asset_type_hash`.
-fn sum_staked_asset(
-    source: Source,
-    own_type_hash: &[u8; 32],
-    asset_type_hash: &[u8; 32],
-    treasury_lock_code_hash: &[u8; 32],
-    treasury_only: bool,
-) -> Result<u128, i8> {
-    let mut total: u128 = 0;
-    let mut i = 0usize;
-    loop {
-        match load_cell_type_hash(i, source) {
-            Ok(Some(th)) if &th == asset_type_hash => {
-                let lock = load_cell_lock(i, source).map_err(|_| ERROR_SYSCALL)?;
-                let is_treasury = is_treasury_cell(
-                    lock.code_hash().as_slice(),
-                    lock.args().raw_data().as_ref(),
-                    own_type_hash,
-                    treasury_lock_code_hash,
-                );
-                if is_treasury == treasury_only {
-                    let data = load_cell_data(i, source).map_err(|_| ERROR_SYSCALL)?;
-                    if data.len() < 16 {
-                        return Err(ERROR_FUNDS_NOT_CONSERVED);
-                    }
-                    let amt = u128::from_le_bytes(data[0..16].try_into().unwrap());
-                    total = total.checked_add(amt).ok_or(ERROR_FUNDS_NOT_CONSERVED)?;
-                }
-            }
-            Ok(_) => {}
-            Err(SysError::IndexOutOfBound) => break,
-            Err(_) => return Err(ERROR_SYSCALL),
-        }
-        i += 1;
-    }
-    Ok(total)
-}
-
-/// Σ(inputs) and Σ(outputs) of staked asset in depositor (non-treasury) cells,
-/// both u128. Unsigned so callers fix the flow direction explicitly.
-fn depositor_io(
-    own_type_hash: &[u8; 32],
-    asset_type_hash: &[u8; 32],
-    treasury_lock_code_hash: &[u8; 32],
-) -> Result<(u128, u128), i8> {
-    let inp = sum_staked_asset(
-        Source::Input,
-        own_type_hash,
-        asset_type_hash,
-        treasury_lock_code_hash,
-        false,
-    )?;
-    let out = sum_staked_asset(
-        Source::Output,
-        own_type_hash,
-        asset_type_hash,
-        treasury_lock_code_hash,
-        false,
-    )?;
-    Ok((inp, out))
 }
 
 /// The sole TreasuryCell balance in `source`: a cell whose lock is

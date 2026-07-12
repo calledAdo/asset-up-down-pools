@@ -148,13 +148,14 @@ fn xudt_deposit_succeeds() {
             .build(),
         prev.to_bytes().into(),
     );
+    // Treasury must rhyme with totals: prev up+down = 100+50 = 150.
     let tre_in = e.context.create_cell(
         CellOutput::new_builder()
             .capacity(tre_cap.clone())
             .lock(e.treasury_lock.clone())
             .type_(Some(e.asset_type.clone()).pack())
             .build(),
-        amount(100),
+        amount(150),
     );
     let dep_in = e.context.create_cell(
         CellOutput::new_builder()
@@ -207,7 +208,7 @@ fn xudt_deposit_succeeds() {
         .output(share_o)
         .output(change_o)
         .output_data(Bytes::from(next.to_bytes()).pack())
-        .output_data(amount(200).pack())
+        .output_data(amount(250).pack()) // treasury == next up+down = 200+50
         .output_data(amount(d).pack())
         .output_data(Bytes::new().pack())
         .header_dep(header.hash())
@@ -282,100 +283,13 @@ fn xudt_redeem_succeeds() {
     assert!(e.context.verify_tx(&tx, MAX_CYCLES).is_ok());
 }
 
-#[test]
-fn xudt_deposit_wrong_asset_type_fails() {
-    let mut e = Env::new();
-    let asset = e.asset_hash();
-    let always = e
-        .context
-        .deploy_cell(ckb_testtool::builtin::ALWAYS_SUCCESS.clone());
-    let wrong_asset = e
-        .context
-        .build_script(&always, Bytes::from_static(b"wrong"))
-        .unwrap();
-    let d: u128 = 100;
-    let prev = xudt_pool(asset, 100, 50, STATUS_OPEN, SIDE_UNDECIDED);
-    let next = xudt_pool(asset, 200, 50, STATUS_OPEN, SIDE_UNDECIDED);
-
-    let pool_cap = e.cap(200 * CKB);
-    let tre_cap = e.cap(200 * CKB);
-
-    let pool_in = e.context.create_cell(
-        CellOutput::new_builder()
-            .capacity(pool_cap.clone())
-            .lock(e.lock.clone())
-            .type_(Some(e.pool_type.clone()).pack())
-            .build(),
-        prev.to_bytes().into(),
-    );
-    let tre_in = e.context.create_cell(
-        CellOutput::new_builder()
-            .capacity(tre_cap.clone())
-            .lock(e.treasury_lock.clone())
-            .type_(Some(e.asset_type.clone()).pack())
-            .build(),
-        amount(100),
-    );
-    // Depositor brings the wrong xUDT type; treasury is bumped but net depositor
-    // outflow of the *configured* asset is zero.
-    let dep_in = e.context.create_cell(
-        CellOutput::new_builder()
-            .capacity(e.cap(200 * CKB))
-            .lock(e.lock.clone())
-            .type_(Some(wrong_asset).pack())
-            .build(),
-        amount(d),
-    );
-    let fund_in = e.context.create_cell(
-        CellOutput::new_builder()
-            .capacity(e.cap(200 * CKB))
-            .lock(e.lock.clone())
-            .build(),
-        Bytes::new(),
-    );
-
-    let pool_o = CellOutput::new_builder()
-        .capacity(pool_cap)
-        .lock(e.lock.clone())
-        .type_(Some(e.pool_type.clone()).pack())
-        .build();
-    let tre_o = CellOutput::new_builder()
-        .capacity(tre_cap)
-        .lock(e.treasury_lock.clone())
-        .type_(Some(e.asset_type.clone()).pack())
-        .build();
-    let share_o = CellOutput::new_builder()
-        .capacity(e.cap(200 * CKB))
-        .lock(e.lock.clone())
-        .type_(Some(e.share(SIDE_UP)).pack())
-        .build();
-    let change_o = CellOutput::new_builder()
-        .capacity(e.cap(200 * CKB))
-        .lock(e.lock.clone())
-        .build();
-
-    let ts: Uint64 = ((START - 100) * 1000).pack();
-    let header = HeaderBuilder::default().timestamp(ts).build();
-    e.context.insert_header(header.clone());
-
-    let tx = TransactionBuilder::default()
-        .input(CellInput::new_builder().previous_output(pool_in).build())
-        .input(CellInput::new_builder().previous_output(tre_in).build())
-        .input(CellInput::new_builder().previous_output(dep_in).build())
-        .input(CellInput::new_builder().previous_output(fund_in).build())
-        .output(pool_o)
-        .output(tre_o)
-        .output(share_o)
-        .output(change_o)
-        .output_data(Bytes::from(next.to_bytes()).pack())
-        .output_data(amount(200).pack())
-        .output_data(amount(d).pack())
-        .output_data(Bytes::new().pack())
-        .header_dep(header.hash())
-        .build();
-    let tx = e.context.complete_tx(tx);
-    assert!(e.context.verify_tx(&tx, MAX_CYCLES).is_err());
-}
+// NOTE: the former `xudt_deposit_wrong_asset_type_fails` test was removed. It exercised
+// `depositor_io`, which summed the depositor's *configured-asset* outflow inside pool_type.
+// That check is redundant with the staked asset's OWN xUDT type script (which conserves its
+// supply: Σ asset inputs == Σ asset outputs), so pool_type now only pins the treasury balance
+// to up_total+down_total and delegates funding provenance to the asset xUDT (see
+// pool_type-spec §3). This harness models the asset as always-success (non-conserving), so it
+// can no longer demonstrate the rejection — that guarantee lives in the asset xUDT layer.
 
 fn oracle_blob(price: i64, publish_time: u64, feed: [u8; 32]) -> Bytes {
     let mut d = vec![0u8; 152];

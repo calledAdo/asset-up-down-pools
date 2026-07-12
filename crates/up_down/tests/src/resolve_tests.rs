@@ -201,10 +201,11 @@ fn resolve_tie_sets_winner_void() {
 }
 
 #[test]
-fn resolve_tick_at_close_fails() {
-    // publish_time must be strictly after close.
+fn resolve_tick_at_close_succeeds() {
+    // Lower bound is inclusive: a tick exactly at close_time is the canonical
+    // close price and resolves the pool (proves real time reached close).
     let next = settled(51_000, CLOSE, SIDE_UP);
-    assert!(run(locked(), next, 51_000, CLOSE, 0).is_err());
+    assert!(run(locked(), next, 51_000, CLOSE, 0).is_ok());
 }
 
 #[test]
@@ -267,10 +268,11 @@ fn correct_not_earlier_fails() {
 }
 
 #[test]
-fn correct_before_close_fails() {
+fn correct_below_close_fails() {
+    // Below the inclusive lower bound (publish_time < close_time) is out of band.
     let prev = settled(51_000, CLOSE + 50, SIDE_UP);
-    let next = settled(51_000, CLOSE, SIDE_UP);
-    assert!(run(prev, next, 51_000, CLOSE, 0).is_err());
+    let next = settled(51_000, CLOSE - 1, SIDE_UP);
+    assert!(run(prev, next, 51_000, CLOSE - 1, 0).is_err());
 }
 
 // ---- FINALIZE (latch) ----------------------------------------------------

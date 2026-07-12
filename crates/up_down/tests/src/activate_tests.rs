@@ -196,10 +196,12 @@ fn activate_wrong_start_price_fails() {
 }
 
 #[test]
-fn activate_tick_at_start_fails() {
+fn activate_tick_at_start_succeeds() {
+    // Lower bound is inclusive: a tick exactly at start_time is the canonical
+    // boundary price and activates the pool (proves real time reached start).
     let prev = open_pool(100, 50);
     let next = locked_next(&prev, PRICE, START);
-    assert!(run(prev, next, PRICE, START, FEED_ID, 0).is_err());
+    assert!(run(prev, next, PRICE, START, FEED_ID, 0).is_ok());
 }
 
 #[test]
@@ -248,10 +250,11 @@ fn correct_start_not_earlier_fails() {
 }
 
 #[test]
-fn correct_start_before_start_fails() {
+fn correct_start_below_start_fails() {
+    // Below the inclusive lower bound (publish_time < start_time) is out of band.
     let prev = locked(PRICE, START + 50);
-    let next = locked_next(&prev, PRICE, START);
-    assert!(run(prev, next, PRICE, START, FEED_ID, 0).is_err());
+    let next = locked_next(&prev, PRICE, START - 1);
+    assert!(run(prev, next, PRICE, START - 1, FEED_ID, 0).is_err());
 }
 
 // ---- ACTIVATE → VOID -----------------------------------------------------
