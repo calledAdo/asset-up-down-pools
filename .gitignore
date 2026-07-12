@@ -50,3 +50,6 @@ Thumbs.db
 
 # --- Claude Code local settings (machine-specific permissions) ---
 .claude/
+
+# --- Cross-agent local timeline ---
+llmtimeline/
