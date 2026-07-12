@@ -40,6 +40,14 @@ export {
   type WakeEntry,
   type TimelineDeps,
 } from "./keeperCore.js";
+export {
+  Keeper,
+  type KeeperTimeline,
+  type KeeperChain,
+  type KeeperOracle,
+  type KeeperExecutor,
+  type KeeperDeps,
+} from "./keeper.js";
 export { type Action, type CreateAction, type TransitionAction, type CloseAction, needsTick } from "./actions.js";
 export { openDb, type WatcherDb, type PoolRow, type TxLogRow } from "./db/db.js";
 export { poolToRow, indexOnce, type IndexContext } from "./indexer.js";

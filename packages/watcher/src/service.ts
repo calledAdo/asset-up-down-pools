@@ -22,25 +22,19 @@ import {
 
 import type { WatcherConfig } from "./config.js";
 import { openDb, type WatcherDb } from "./db/db.js";
-import { execute, executeBatch, type ExecContext, type ExecResult } from "./executor.js";
-import { needsTick, type TransitionAction } from "./actions.js";
+import { execute, executeDecisions, type ExecContext } from "./executor.js";
 import { indexOnce } from "./indexer.js";
-import { plan, nextKeeperWake } from "./planner.js";
 import { reconcile } from "./reconcile.js";
 import { StubOracleSource, type OracleSource } from "./oracle/source.js";
 import { OracleWorker } from "./oracle/worker.js";
 import { Mutex } from "./mutex.js";
 import { buildServer } from "./api/server.js";
 import { createTxBuilder } from "./api/txBuilder.js";
+import { Cadence, Timeline, type WakeEntry } from "./keeperCore.js";
+import { Keeper } from "./keeper.js";
 
 /** Fee rate (shannons / 1000 bytes) for server-built txs; devnet needs an explicit value. */
 const DEFAULT_FEE_RATE = 1000n;
-
-/**
- * Wake this long after a due boundary, so the oracle worker has advanced the cell
- * before the keeper reads it for activate/resolve/finalize.
- */
-const KEEPER_POST_BOUNDARY_DELAY_MS = 5000;
 
 /**
  * Re-attempt soon when a transition this tick skipped (oracle cell not advanced yet)
@@ -149,10 +143,8 @@ export function createService(deps: ServiceDeps): Service {
       : undefined;
 
   let indexing = false;
-  let keeping = false;
-  let keeperStopped = false;
   let indexTimer: NodeJS.Timeout | undefined;
-  let keepTimer: NodeJS.Timeout | undefined;
+  let keeperRuntime: Keeper | undefined;
 
   async function indexTick() {
     if (indexing) return;
@@ -170,62 +162,56 @@ export function createService(deps: ServiceDeps): Service {
     }
   }
 
-  // One keeper pass; returns ms to sleep until the next due moment (capped by
-  // pollIntervalSecs, which also bounds retries — e.g. a transition that skipped
-  // because the oracle worker hadn't advanced the cell yet).
-  async function keeperTick(): Promise<number> {
-    const capMs = config.pollIntervalSecs * 1000;
-    if (keeping) return capMs;
-    keeping = true;
-    let pools: PoolView[] = [];
-    let results: ExecResult[] = [];
-    try {
-      // Drop cached cells so transitions build against the CURRENT pool cell. A pool
-      // cell moves whenever a player deposits/withdraws (an external wallet/client), so
-      // the keeper's own cache goes stale and would dep a spent outpoint → "Unknown OutPoint".
-      await client.cache.clear();
-      const now = (await client.getTipHeader()).timestamp / 1000n;
-      pools = (await keeper.listPools({ creator: ownCreatorHash })).filter((p) =>
-        feeds.has(p.data.feedId.toLowerCase()),
-      );
-      const actions = plan({ now, pools, lanes });
-      // Oracle-driven transitions batch (boundary-coincident ones → one tx); CREATE
-      // and CLOSE stay individual (typeID seed input / admin-gated, no batching gain).
-      const transitions = actions.filter((a): a is TransitionAction => needsTick(a));
-      const rest = actions.filter((a) => !needsTick(a));
-      // Serialize all wallet-spending work against the oracle worker's advances — in
-      // `all` mode they share the wallet + client; the mutex keeps cell selection apart.
-      if (transitions.length > 0) {
-        results = await walletMutex.run(() => executeBatch(transitions, execCtx));
-      }
-      for (const action of rest) {
-        const r = await walletMutex.run(() => execute(action, execCtx));
-        results.push(r);
-        if (!r.skipped) log(`${action.kind} -> ${r.txHash ?? r.reason}`);
-      }
-    } catch (err) {
-      log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      keeping = false;
-    }
-    // Retry soon if a tx skipped because the oracle cell wasn't advanced yet, or
-    // failed (a batch fallback left a pool unmoved). Otherwise sleep to the next real
-    // pool-state event; the cap is a long safety backstop, not the primary cadence.
-    const retrySoon = results.some(
-      (r) => (r.skipped && r.reason === "no tick") || (!r.skipped && !r.txHash),
+  const listOwnPools = async (): Promise<PoolView[]> => {
+    await client.cache.clear();
+    return (await keeper.listPools({ creator: ownCreatorHash })).filter((p) =>
+      feeds.has(p.data.feedId.toLowerCase()),
     );
-    if (retrySoon) return Math.min(KEEPER_RETRY_DELAY_MS, capMs);
-    const wakeNow = BigInt(Math.floor(Date.now() / 1000));
-    const due = nextKeeperWake(wakeNow, pools, lanes);
-    const eventMs = due === null ? capMs : Number(due - wakeNow) * 1000 + KEEPER_POST_BOUNDARY_DELAY_MS;
-    return Math.max(0, Math.min(eventMs, capMs));
-  }
+  };
 
-  function scheduleKeeper(): void {
-    if (keeperStopped) return;
-    void keeperTick().then((delayMs) => {
-      if (!keeperStopped) keepTimer = setTimeout(scheduleKeeper, delayMs);
+  if (runsKeeper) {
+    const cadences = lanes.map((lane) => new Cadence(lane));
+    let runtime: Keeper | undefined;
+    const timeline = new Timeline({
+      onWake: async (dueTime: bigint, entries: WakeEntry[]) => {
+        try {
+          await runtime?.onWake(dueTime, entries);
+        } catch (err) {
+          log(`keeper wake error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      },
     });
+    runtime = new Keeper({
+      cadences,
+      timeline,
+      retryDelaySecs: BigInt(Math.ceil(KEEPER_RETRY_DELAY_MS / 1000)),
+      reconcile: async () => {
+        await reconcile(db, client, log);
+      },
+      chain: {
+        now: async () => (await client.getTipHeader()).timestamp / 1000n,
+        listOwnPools,
+        readPool: async (poolId: Hex) => {
+          await client.cache.clear();
+          const pool = await keeper.getPool(poolId);
+          return pool && feeds.has(pool.data.feedId.toLowerCase()) ? pool : null;
+        },
+      },
+      oracle: {
+        readCurrentTick: async (feedId: Hex) => {
+          const reader = oracle as OracleSource & {
+            readCurrentTick?: (feedId: Hex) => Promise<import("ckb-up-down-sdk/tx").OracleTick | null>;
+          };
+          return reader.readCurrentTick ? reader.readCurrentTick(feedId) : oracle.getTickAtOrAfter(feedId, 0n);
+        },
+      },
+      executor: {
+        executeDecisions: (actions) => walletMutex.run(() => executeDecisions(actions, execCtx)),
+        executeCreate: (action) => walletMutex.run(() => execute(action, execCtx)),
+      },
+      log,
+    });
+    keeperRuntime = runtime;
   }
 
   return {
@@ -243,14 +229,14 @@ export function createService(deps: ServiceDeps): Service {
         indexTimer = setInterval(() => void indexTick(), config.indexIntervalSecs * 1000);
       }
       if (runsKeeper) {
-        scheduleKeeper(); // sleeps to the next due event, not a fixed interval
+        await keeperRuntime?.start();
       }
       if (oracleWorker) {
         oracleWorker.start();
         log(`oracle worker on (sole writer; ${new Set(lanes.map((l) => l.feedId)).size} feed(s))`);
       }
       const ran = [
-        runsKeeper && `keeper event-driven (≤${config.pollIntervalSecs}s)`,
+        runsKeeper && "keeper self-scheduled",
         runsIndexer && `index ${config.indexIntervalSecs}s`,
         oracleWorker && "oracle",
       ]
@@ -260,8 +246,7 @@ export function createService(deps: ServiceDeps): Service {
     },
     async stop() {
       if (indexTimer) clearInterval(indexTimer);
-      keeperStopped = true;
-      if (keepTimer) clearTimeout(keepTimer);
+      await keeperRuntime?.stop();
       oracleWorker?.stop();
       if (app) await app.close();
       db.raw.close();
