@@ -139,6 +139,14 @@ async function main() {
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
+  // Operator wind-down control (keeper/all roles): SIGUSR1 stops minting new rounds
+  // so existing pools drain to a terminal state before a redeploy; SIGUSR2 resumes.
+  // e.g. `docker kill -s USR1 keeper-5m`. Registering a SIGUSR1 handler overrides
+  // Node's default (start the inspector) — fine for a headless service; attach a
+  // debugger with --inspect at launch instead.
+  process.on("SIGUSR1", () => service.setWindingDown(true));
+  process.on("SIGUSR2", () => service.setWindingDown(false));
+
   await service.start();
 }
 

@@ -77,6 +77,12 @@ export interface Service {
   db: WatcherDb;
   start(): Promise<void>;
   stop(): Promise<void>;
+  /**
+   * Toggle keeper wind-down (operator control, driven by SIGUSR1/SIGUSR2 in the
+   * entrypoint). `true` stops minting new rounds so existing pools drain to a
+   * terminal state; `false` resumes. A no-op on a process that runs no keeper.
+   */
+  setWindingDown(on: boolean): void;
 }
 
 /** Wire the workers + API into one start/stop-able service. */
@@ -260,6 +266,25 @@ export function createService(deps: ServiceDeps): Service {
         .filter(Boolean)
         .join(", ");
       log(`role=${role} started (${ran})`);
+    },
+    setWindingDown(on: boolean) {
+      if (!runsKeeper || !keeperRuntime) {
+        log(`winddown signal ignored (role=${role} runs no keeper)`);
+        return;
+      }
+      keeperRuntime.setWindingDown(on);
+      if (on) {
+        log("winddown ENABLED — not minting new rounds; existing pools drain to terminal (SIGUSR2 to resume)");
+      } else {
+        log("winddown DISABLED — resuming rolling creation");
+        // Create wakes drain out while winding down (a create wake fires once and
+        // does not re-arm the next), so on resume re-seed them immediately via a
+        // sweep instead of waiting for the periodic one. onSweep sends no tx and is
+        // idempotent, so this is safe to fire from the signal handler.
+        void keeperRuntime.onSweep().catch((err) =>
+          log(`winddown resume sweep error: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      }
     },
     async stop() {
       if (indexTimer) clearInterval(indexTimer);

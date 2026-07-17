@@ -182,6 +182,30 @@ test("onSweep re-arms every live pool and re-seeds one create wake per cadence",
   ]);
 });
 
+test("a create wake while winding down neither mints nor re-arms the next create", async () => {
+  const timeline = fakeTimeline();
+  const creates = [];
+  const keeper = new Keeper({
+    cadences: [new Cadence(lane)],
+    timeline,
+    reconcile: async () => {},
+    chain: { now: async () => 1500n, listOwnPools: async () => [], readPool: async () => null },
+    oracle: { readCurrentTick: async () => null },
+    executor: {
+      executeDecisions: async () => [],
+      executeCreate: async (a) => { creates.push(a); return { action: "create", skipped: false }; },
+    },
+  });
+
+  await keeper.start(); // seeds a create wake (not winding down yet)
+  keeper.setWindingDown(true);
+  timeline.calls.length = 0;
+  await keeper.onWake(1585n, [{ kind: "create", cadence: new Cadence(lane), boundary: 1600n }]);
+
+  assert.deepEqual(creates, [], "no pool minted while winding down");
+  assert.deepEqual(timeline.calls, [], "next create not re-armed while winding down");
+});
+
 test("onSweep does not re-seed creates while winding down", async () => {
   const timeline = fakeTimeline();
   const locked = poolView({ status: 1, startTime: 1600n, closeTime: 1900n, startPrice: 100n, usedPt: 1600n });
