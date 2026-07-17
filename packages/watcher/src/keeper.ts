@@ -40,6 +40,13 @@ export interface KeeperDeps {
   executor: KeeperExecutor;
   reconcile: () => Promise<void>;
   retryDelaySecs?: bigint;
+  /**
+   * Wall-clock source (unix seconds), the SAME clock the Timeline fires its timers
+   * on — used to place retry slots so the backoff is real wall-clock time, not
+   * chain-tip time (the tip lags real time, which would make a `tip + delay` retry
+   * fire early). Defaults to `Date.now()`.
+   */
+  clock?: () => bigint;
   log?: (msg: string) => void;
 }
 
@@ -47,9 +54,11 @@ export class Keeper {
   private stopped = true;
   private windingDown = false;
   private readonly retryDelaySecs: bigint;
+  private readonly clock: () => bigint;
 
   constructor(private readonly deps: KeeperDeps) {
     this.retryDelaySecs = deps.retryDelaySecs ?? 5n;
+    this.clock = deps.clock ?? (() => BigInt(Math.floor(Date.now() / 1000)));
   }
 
   async start(): Promise<void> {
@@ -173,10 +182,24 @@ export class Keeper {
     if (next === null) {
       this.deps.timeline.removePool(pool.poolId);
     } else if (next <= now) {
-      this.deps.timeline.schedulePool(pool.poolId, now + this.retryDelaySecs);
+      // Overdue but not actionable yet (oracle cell behind, or a failed tx). Retry on a
+      // SHARED wall-clock grid rather than `now + retryDelaySecs`: every pool waiting on
+      // the same lagging feed snaps to the same slot, so they land in one Timeline bucket
+      // -> one wake -> one oracle read + a batched tx, instead of a scatter of near-
+      // simultaneous single-pool wakes. Wall clock (not chain-tip `now`) because the
+      // Timeline fires timers on wall clock; a `tip + delay` slot fires early whenever the
+      // tip lags real time, which would spin the retry. Overdue *detection* stays on chain
+      // `now` above (it must, to match the contract's header-time semantics).
+      this.deps.timeline.schedulePool(pool.poolId, this.nextRetrySlot());
     } else {
       this.deps.timeline.schedulePool(pool.poolId, next);
     }
+  }
+
+  /** Next wall-clock grid tick strictly after now, aligned to `retryDelaySecs`. */
+  private nextRetrySlot(): bigint {
+    const g = this.retryDelaySecs;
+    return (this.clock() / g + 1n) * g;
   }
 
   private schedulePoolFromState(pool: PoolView, now: bigint): void {

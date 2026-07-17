@@ -122,17 +122,18 @@ test("pool wake reads fresh state, executes the decided action, then re-arms fro
   assert.deepEqual(timeline.calls, [["pool", POOL, 1900n]]);
 });
 
-test("pool wake with a lagging oracle tick re-arms with backoff, not a 0ms spin", async () => {
+test("pool wake with a lagging oracle tick re-arms on the retry grid, not a 0ms spin", async () => {
   const timeline = fakeTimeline();
   // OPEN, wall-clock past start, but the oracle cell hasn't advanced past start yet
   // (pt < startTime) — decide returns null. The pool must NOT be re-armed at `now`
-  // (which would busy-poll the node), but at now + retryDelaySecs.
+  // (which would busy-poll the node), but at the next wall-clock retry-grid slot.
   const openPool = poolView({ status: 0, startTime: 1600n, closeTime: 1900n });
   const executed = [];
   const keeper = new Keeper({
     cadences: [new Cadence(lane)],
     timeline,
     retryDelaySecs: 5n,
+    clock: () => 1600n, // wall clock; slot = (1600/5 + 1)*5 = 1605
     reconcile: async () => {},
     chain: {
       now: async () => 1600n,
@@ -151,7 +152,37 @@ test("pool wake with a lagging oracle tick re-arms with backoff, not a 0ms spin"
   await keeper.onWake(1600n, [{ kind: "pool", poolId: POOL }]);
 
   assert.deepEqual(executed, [], "nothing to execute while the tick lags");
-  assert.deepEqual(timeline.calls, [["pool", POOL, 1605n]], "re-armed at now + retryDelaySecs");
+  assert.deepEqual(timeline.calls, [["pool", POOL, 1605n]], "re-armed on the next retry-grid slot");
+});
+
+test("lagging-tick retries from separate wakes snap to the same grid slot (coalesce)", async () => {
+  const timeline = fakeTimeline();
+  const openPool = poolView({ status: 0, startTime: 1600n, closeTime: 1900n });
+  let wall = 1601n; // mutable wall clock
+  const keeper = new Keeper({
+    cadences: [new Cadence(lane)],
+    timeline,
+    retryDelaySecs: 5n,
+    clock: () => wall,
+    reconcile: async () => {},
+    chain: { now: async () => 1600n, listOwnPools: async () => [], readPool: async () => openPool },
+    oracle: { readCurrentTick: async () => tick(1500n) }, // always behind -> decide null
+    executor: { executeDecisions: async () => [], executeCreate: async () => ({ action: "create", skipped: false }) },
+  });
+
+  await keeper.start();
+  timeline.calls.length = 0;
+
+  await keeper.onWake(1600n, [{ kind: "pool", poolId: POOL }]); // wall 1601 -> slot 1605
+  wall = 1603n;
+  await keeper.onWake(1600n, [{ kind: "pool", poolId: POOL }]); // wall 1603 -> slot 1605 (same window)
+
+  // Both retries target the SAME 5s grid bucket despite different wall-clock reads —
+  // in the real Timeline they'd merge into one slot and fire in one batched wake.
+  assert.deepEqual(timeline.calls, [
+    ["pool", POOL, 1605n],
+    ["pool", POOL, 1605n],
+  ]);
 });
 
 test("onSweep re-arms every live pool and re-seeds one create wake per cadence", async () => {
