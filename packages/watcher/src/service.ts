@@ -43,6 +43,13 @@ const DEFAULT_FEE_RATE = 1000n;
  */
 const KEEPER_RETRY_DELAY_MS = 5000;
 
+/**
+ * How often the keeper's safety sweep re-derives the schedule from chain truth (see
+ * `Keeper.onSweep`). Long relative to lifecycle events — it's a backstop for dropped
+ * timers, not the primary driver — so it's cheap (one pool list + idempotent re-arm).
+ */
+const KEEPER_SWEEP_INTERVAL_MS = 60_000;
+
 export interface ServiceDeps {
   config: WatcherConfig;
   /** Keeper client (wraps the CCC client + deployment). */
@@ -144,6 +151,7 @@ export function createService(deps: ServiceDeps): Service {
 
   let indexing = false;
   let indexTimer: NodeJS.Timeout | undefined;
+  let sweepTimer: NodeJS.Timeout | undefined;
   let keeperRuntime: Keeper | undefined;
 
   async function indexTick() {
@@ -230,6 +238,15 @@ export function createService(deps: ServiceDeps): Service {
       }
       if (runsKeeper) {
         await keeperRuntime?.start();
+        // Safety backstop: periodically re-derive the schedule from chain so a dropped
+        // timer (swallowed wake error, pause, clock skew, out-of-band pool) self-heals.
+        sweepTimer = setInterval(() => {
+          const rt = keeperRuntime;
+          if (!rt) return;
+          void rt
+            .onSweep()
+            .catch((err) => log(`keeper sweep error: ${err instanceof Error ? err.message : String(err)}`));
+        }, KEEPER_SWEEP_INTERVAL_MS);
       }
       if (oracleWorker) {
         oracleWorker.start();
@@ -246,6 +263,7 @@ export function createService(deps: ServiceDeps): Service {
     },
     async stop() {
       if (indexTimer) clearInterval(indexTimer);
+      if (sweepTimer) clearInterval(sweepTimer);
       await keeperRuntime?.stop();
       oracleWorker?.stop();
       if (app) await app.close();

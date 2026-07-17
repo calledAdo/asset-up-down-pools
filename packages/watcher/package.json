@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.json",
     "start": "node --enable-source-maps dist/bin/server.js",
-    "test": "npm run build && node tests/grace.fixture.mjs && node tests/planner.fixture.mjs && node tests/keeperCore.fixture.mjs && node tests/keeper.fixture.mjs && node tests/indexer.fixture.mjs && node tests/executor.fixture.mjs && node tests/reconcile.fixture.mjs && node tests/api.fixture.mjs && node tests/oracle.fixture.mjs && node tests/mutex.fixture.mjs",
+    "test": "npm run build && node tests/grace.fixture.mjs && node tests/keeperCore.fixture.mjs && node tests/keeper.fixture.mjs && node tests/indexer.fixture.mjs && node tests/executor.fixture.mjs && node tests/reconcile.fixture.mjs && node tests/api.fixture.mjs && node tests/oracle.fixture.mjs && node tests/mutex.fixture.mjs",
     "test:integration:devnet": "npm run build && node --env-file=.env tests/integration/devnet/smoke.test.mjs"
   },
   "dependencies": {

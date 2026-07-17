@@ -121,3 +121,83 @@ test("pool wake reads fresh state, executes the decided action, then re-arms fro
   assert.deepEqual(executed, [{ kind: "activate", poolId: POOL, feedId: FEED, oracle: tick(1600n) }]);
   assert.deepEqual(timeline.calls, [["pool", POOL, 1900n]]);
 });
+
+test("pool wake with a lagging oracle tick re-arms with backoff, not a 0ms spin", async () => {
+  const timeline = fakeTimeline();
+  // OPEN, wall-clock past start, but the oracle cell hasn't advanced past start yet
+  // (pt < startTime) — decide returns null. The pool must NOT be re-armed at `now`
+  // (which would busy-poll the node), but at now + retryDelaySecs.
+  const openPool = poolView({ status: 0, startTime: 1600n, closeTime: 1900n });
+  const executed = [];
+  const keeper = new Keeper({
+    cadences: [new Cadence(lane)],
+    timeline,
+    retryDelaySecs: 5n,
+    reconcile: async () => {},
+    chain: {
+      now: async () => 1600n,
+      listOwnPools: async () => [],
+      readPool: async () => openPool, // still OPEN on the post-read (tick behind)
+    },
+    oracle: { readCurrentTick: async () => tick(1500n) }, // pt < startTime -> decide null
+    executor: {
+      executeDecisions: async (a) => { executed.push(...a); return []; },
+      executeCreate: async () => ({ action: "create", skipped: false }),
+    },
+  });
+
+  await keeper.start();
+  timeline.calls.length = 0;
+  await keeper.onWake(1600n, [{ kind: "pool", poolId: POOL }]);
+
+  assert.deepEqual(executed, [], "nothing to execute while the tick lags");
+  assert.deepEqual(timeline.calls, [["pool", POOL, 1605n]], "re-armed at now + retryDelaySecs");
+});
+
+test("onSweep re-arms every live pool and re-seeds one create wake per cadence", async () => {
+  const timeline = fakeTimeline();
+  const locked = poolView({ status: 1, startTime: 1600n, closeTime: 1900n, startPrice: 100n, usedPt: 1600n });
+  const keeper = new Keeper({
+    cadences: [new Cadence(lane)],
+    timeline,
+    reconcile: async () => {},
+    chain: {
+      now: async () => 1700n,
+      listOwnPools: async () => [locked],
+      readPool: async () => locked,
+    },
+    oracle: { readCurrentTick: async () => null },
+    executor: { executeDecisions: async () => [], executeCreate: async () => ({ action: "create", skipped: false }) },
+  });
+
+  await keeper.start();
+  timeline.calls.length = 0;
+  await keeper.onSweep();
+
+  // LOCKED -> next boundary is closeTime (1900, future); create re-seeded at
+  // boundaryAtOrAfter(1700) = 1900 (firstCreateAt 1300 + 2*300).
+  assert.deepEqual(timeline.calls, [
+    ["pool", POOL, 1900n],
+    ["create", "BTC-5m", 1900n],
+  ]);
+});
+
+test("onSweep does not re-seed creates while winding down", async () => {
+  const timeline = fakeTimeline();
+  const locked = poolView({ status: 1, startTime: 1600n, closeTime: 1900n, startPrice: 100n, usedPt: 1600n });
+  const keeper = new Keeper({
+    cadences: [new Cadence(lane)],
+    timeline,
+    reconcile: async () => {},
+    chain: { now: async () => 1700n, listOwnPools: async () => [locked], readPool: async () => locked },
+    oracle: { readCurrentTick: async () => null },
+    executor: { executeDecisions: async () => [], executeCreate: async () => ({ action: "create", skipped: false }) },
+  });
+  keeper.setWindingDown(true);
+
+  await keeper.start();
+  timeline.calls.length = 0;
+  await keeper.onSweep();
+
+  assert.deepEqual(timeline.calls, [["pool", POOL, 1900n]], "existing pool re-armed, no new create");
+});

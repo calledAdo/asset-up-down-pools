@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { execute, executeBatch, executeDecisions, openDb, StubOracleSource } from "../dist/index.js";
+import { execute, executeDecisions, openDb, StubOracleSource } from "../dist/index.js";
 
 const FEED = "0x" + "fe".repeat(32);
 const POOL = "0x" + "01".repeat(32);
@@ -74,17 +74,6 @@ function ctx(over = {}) {
 
 const FEED_B = "0x" + "ed".repeat(32);
 const POOL2 = "0x" + "02".repeat(32);
-
-// A tick whose oracle cell differs per feed (so different feeds land in different
-// groups), and is stable per feed (so same-feed coincident transitions share one).
-const cellPerFeed = {
-  getTickAtOrAfter: async (feedId, min) => ({
-    feedId,
-    price: 1n,
-    publishTimeUnix: min + 1n,
-    cellDep: { outPoint: { txHash: feedId, index: 0 }, depType: "code" },
-  }),
-};
 
 const createAction = {
   kind: "create",
@@ -173,14 +162,16 @@ test("failure path: keeper throws -> failed logged and returned", async () => {
   assert.equal(c.db.hasOpenAction(POOL, "finalize"), false);
 });
 
-// ---- executeBatch: fold coincident transitions, group by oracle cell ----
+// ---- executeDecisions: fold coincident transitions, group by oracle cell ----
+// Transition actions carry the exact tick decide() chose, so there is no oracle
+// lookup; grouping/fallback/refresh live in the shared runBatchGroup.
 
-const resolveA = { kind: "resolve", poolId: POOL, feedId: FEED, minPublishTime: 2700n };
-const activateA = { kind: "activate", poolId: POOL2, feedId: FEED, minPublishTime: 2700n };
+const resolveDec = (txHash) => ({ kind: "resolve", poolId: POOL, feedId: FEED, oracle: oracleTick(FEED, 2701n, txHash) });
+const activateDec = (poolId, feedId, txHash) => ({ kind: "activate", poolId, feedId, oracle: oracleTick(feedId, 2701n, txHash) });
 
-test("batch: coincident transitions on one feed -> a single tx", async () => {
-  const c = ctx({ oracle: tickOracle }); // same cell for both
-  const rs = await executeBatch([resolveA, activateA], c);
+test("decisions: coincident transitions on one cell -> a single tx", async () => {
+  const c = ctx(); // both actions default to the same oracle cell
+  const rs = await executeDecisions([resolveDec(), activateDec(POOL2, FEED)], c);
   assert.equal(rs.length, 2);
   assert.ok(rs.every((r) => !r.skipped && r.txHash === TXH));
   const batches = c.keeper.calls.filter((k) => k.name === "batch");
@@ -190,10 +181,10 @@ test("batch: coincident transitions on one feed -> a single tx", async () => {
   assert.equal(c.db.hasOpenAction(POOL2, "activate"), true);
 });
 
-test("batch: groups by oracle cell (different feeds -> separate txs)", async () => {
-  const c = ctx({ oracle: cellPerFeed });
-  const rs = await executeBatch(
-    [resolveA, { kind: "activate", poolId: POOL2, feedId: FEED_B, minPublishTime: 2700n }],
+test("decisions: groups by oracle cell (different cells -> separate txs)", async () => {
+  const c = ctx();
+  const rs = await executeDecisions(
+    [resolveDec("0x" + "c1".repeat(32)), activateDec(POOL2, FEED_B, "0x" + "c2".repeat(32))],
     c,
   );
   assert.equal(rs.length, 2);
@@ -202,25 +193,17 @@ test("batch: groups by oracle cell (different feeds -> separate txs)", async () 
   assert.ok(batches.every((b) => b.items.length === 1));
 });
 
-test("batch: no-tick actions are reported as skipped (so the keeper can retry soon)", async () => {
-  const c = ctx({ oracle: new StubOracleSource() }); // returns null
-  const rs = await executeBatch([resolveA, activateA], c);
-  assert.equal(rs.length, 2);
-  assert.ok(rs.every((r) => r.skipped && r.reason === "no tick"));
-  assert.equal(c.keeper.calls.filter((k) => k.name === "batch").length, 0);
-});
-
-test("batch: an in-flight action is reported skipped and not re-sent", async () => {
-  const c = ctx({ oracle: tickOracle });
+test("decisions: an in-flight action is reported skipped and not re-sent", async () => {
+  const c = ctx();
   c.db.insertTxLog({ poolId: POOL, action: "resolve", status: "sent" }); // already open
-  const rs = await executeBatch([resolveA], c);
+  const rs = await executeDecisions([resolveDec()], c);
   assert.equal(rs.length, 1);
   assert.equal(rs[0].skipped, true);
   assert.match(rs[0].reason, /in-flight/);
   assert.equal(c.keeper.calls.filter((k) => k.name === "batch").length, 0);
 });
 
-test("batch: a failing batch falls back to per-pool txs (good ones still land)", async () => {
+test("decisions: a failing batch falls back to per-pool txs (good ones still land)", async () => {
   const keeper = fakeKeeper({
     draftTransitionBatch: async (items) => {
       keeper.calls.push({ name: "batch", items });
@@ -228,8 +211,8 @@ test("batch: a failing batch falls back to per-pool txs (good ones still land)",
       return { name: "batch", items };
     },
   });
-  const c = ctx({ keeper, oracle: tickOracle });
-  const rs = await executeBatch([resolveA, activateA], c);
+  const c = ctx({ keeper });
+  const rs = await executeDecisions([resolveDec(), activateDec(POOL2, FEED)], c);
   const batches = keeper.calls.filter((k) => k.name === "batch");
   assert.equal(batches.length, 3, "1 failed merged attempt + 2 singleton fallbacks");
   assert.equal(batches[0].items.length, 2);
@@ -240,10 +223,10 @@ test("batch: a failing batch falls back to per-pool txs (good ones still land)",
   assert.ok(rs.every((r) => r.txHash === TXH));
 });
 
-test("batch: refresh (cache clear) runs before each build", async () => {
+test("decisions: refresh (cache clear) runs before each build", async () => {
   let refreshes = 0;
-  const c = ctx({ oracle: tickOracle, refresh: async () => { refreshes += 1; } });
-  await executeBatch([resolveA, activateA], c);
+  const c = ctx({ refresh: async () => { refreshes += 1; } });
+  await executeDecisions([resolveDec(), activateDec(POOL2, FEED)], c);
   assert.equal(refreshes, 1, "one build for the one group");
 });
 

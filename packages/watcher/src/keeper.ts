@@ -84,6 +84,29 @@ export class Keeper {
     for (const entry of createEntries) await this.handleCreateEntry(entry.cadence, entry.boundary, now);
   }
 
+  /**
+   * Low-frequency safety backstop. Edge-triggered scheduling is only as reliable as
+   * its timers: a swallowed wake error, a process pause, clock skew, or a pool
+   * created out-of-band can leave an entity with no live timer. The sweep re-derives
+   * the schedule from chain truth — it lists every own pool and re-arms it (healing a
+   * missing or stale timer), and re-seeds each cadence's create wake unless winding
+   * down. It never sends a tx itself: `scheduleRetryOrNext` arms an overdue pool at
+   * `now + retryDelaySecs`, so the pool's own wake performs the action. Re-arming is
+   * idempotent — `poolIndex`/`cadenceIndex` keep one wake per entity — so a sweep that
+   * finds everything already scheduled is a no-op beyond re-reading chain state.
+   */
+  async onSweep(): Promise<void> {
+    if (this.stopped) return;
+    const now = await this.deps.chain.now();
+    const pools = await this.deps.chain.listOwnPools();
+    for (const pool of pools) this.scheduleRetryOrNext(pool, now);
+    if (!this.windingDown) {
+      for (const cadence of this.deps.cadences) {
+        this.deps.timeline.scheduleCreate(cadence, cadence.boundaryAtOrAfter(now));
+      }
+    }
+  }
+
   private async handlePoolEntries(
     entries: Extract<WakeEntry, { kind: "pool" }>[],
     now: bigint,
@@ -105,7 +128,12 @@ export class Keeper {
       }
       const action = decide(pool, now, tickCache.get(feed) ?? null);
       if (action) actions.push(action);
-      else this.scheduleRetryOrNext(pool, now);
+      // No re-arm here: every seen pool is re-armed below from its POST-execute
+      // state via scheduleRetryOrNext, which backs off (now + retryDelaySecs) when
+      // the pool is still overdue — e.g. decide returned null because the oracle
+      // cell hasn't advanced past the boundary yet, or a transition tx failed.
+      // Re-arming from post-state uses the freshest read and, crucially, applies
+      // the backoff, so a lagging tick can't spin the pool at ~0ms.
     }
 
     if (actions.length > 0) await this.deps.executor.executeDecisions(actions);
@@ -113,7 +141,7 @@ export class Keeper {
     for (const poolId of seenPools) {
       const post = await this.deps.chain.readPool(poolId);
       if (!post) this.deps.timeline.removePool(poolId);
-      else this.schedulePoolFromState(post, now);
+      else this.scheduleRetryOrNext(post, now);
     }
   }
 

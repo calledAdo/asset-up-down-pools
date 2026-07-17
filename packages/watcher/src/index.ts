@@ -1,6 +1,7 @@
 //! ckb-up-down-watcher — operational backend: rolling-pool keeper, chain indexer,
 //! and frontend API. This barrel exposes the pure/testable pieces (config, timing
-//! helpers, the planner, the oracle seam); the runnable service is `bin/server.ts`.
+//! helpers, the keeper core + scheduler, the oracle seam); the runnable service is
+//! `bin/server.ts`.
 
 export {
   type LaneConfig,
@@ -27,7 +28,6 @@ export {
 export { OracleWorker, type OracleWorkerDeps } from "./oracle/worker.js";
 export { Mutex, noopMutex } from "./mutex.js";
 export { loadLeanNetwork, oracleIdentityOf } from "./oracle/leanNetwork.js";
-export { plan, nextKeeperWake, type PlanInput } from "./planner.js";
 export {
   Cadence,
   Timeline,
@@ -53,7 +53,6 @@ export { openDb, type WatcherDb, type PoolRow, type TxLogRow } from "./db/db.js"
 export { poolToRow, indexOnce, type IndexContext } from "./indexer.js";
 export {
   execute,
-  executeBatch,
   executeDecisions,
   type ExecContext,
   type ExecResult,

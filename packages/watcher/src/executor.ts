@@ -9,7 +9,7 @@
 import type { Hex, Script } from "ckb-up-down-sdk";
 import type { OracleTick, PoolAsset, TransitionKind } from "ckb-up-down-sdk/tx";
 
-import type { Action, TransitionAction } from "./actions.js";
+import type { Action } from "./actions.js";
 import { laneOracleCommit } from "./config.js";
 import type { WatcherDb } from "./db/db.js";
 import { needsTick } from "./actions.js";
@@ -141,65 +141,20 @@ interface BatchItem {
 }
 
 /**
- * Execute several transition actions, folding the ones that share an oracle cell
- * into a single transaction. Boundary-coincident transitions (e.g. RESOLVE the
- * closing round + ACTIVATE the next + ACTIVATE another lane, all on the same tick)
- * become one tx — fewer fees, one atomic boundary. On a batch failure we fall back
- * to per-pool txs so one stale PoolCell can't sink the others, and we refetch
- * (clear cache) before every build so each attempt sees current chain state.
+ * Execute actions emitted by the keeper decision core, folding the ones that share
+ * an oracle cell into a single transaction. Transition actions already carry the
+ * exact current oracle cell chosen by `decide`, so this path does not ask
+ * `OracleSource` to search by min publish time.
+ *
+ * Boundary-coincident transitions (e.g. RESOLVE the closing round + ACTIVATE the
+ * next + ACTIVATE another lane, all on the same tick) become one tx — fewer fees,
+ * one atomic boundary. On a batch failure we fall back to per-pool txs so one stale
+ * PoolCell can't sink the others, and we refetch (clear cache) before every build so
+ * each attempt sees current chain state.
  *
  * Grouping by oracle cell is mandatory: `pool_type`'s `find_oracle` rejects a tx
  * that carries two same-feed oracle deps, so transitions resolving to different
  * cells must go in separate txs.
- */
-export async function executeBatch(
-  actions: TransitionAction[],
-  ctx: ExecContext,
-): Promise<ExecResult[]> {
-  const log = ctx.log ?? (() => {});
-
-  // 1. Resolve a tick per action. In-flight (idempotency) and tick-less actions are
-  //    reported as skipped so the caller can retry a "no tick" soon (oracle lag).
-  const items: BatchItem[] = [];
-  const skipped: ExecResult[] = [];
-  for (const action of actions) {
-    if (ctx.db.hasOpenAction(action.poolId, action.kind)) {
-      skipped.push({ action: action.kind, skipped: true, reason: "in-flight (pool action)" });
-      continue;
-    }
-    const tick = await ctx.oracle.getTickAtOrAfter(action.feedId, action.minPublishTime);
-    if (!tick) {
-      log(`skip ${action.kind} ${action.poolId}: no oracle tick >= ${action.minPublishTime}`);
-      skipped.push({ action: action.kind, skipped: true, reason: "no tick" });
-      continue;
-    }
-    items.push({ action, tick });
-  }
-  if (items.length === 0) return skipped;
-
-  // 2. Group by oracle cell (feed + cell outpoint). Same-feed items on different
-  //    cells must not share a tx (find_oracle ambiguity).
-  const groups = new Map<string, BatchItem[]>();
-  for (const it of items) {
-    const op = it.tick.cellDep.outPoint;
-    const key = `${it.action.feedId.toLowerCase()}:${op.txHash}:${op.index}`;
-    const g = groups.get(key);
-    if (g) g.push(it);
-    else groups.set(key, [it]);
-  }
-
-  // 3. Run each group as one tx (a singleton group is just a one-item batch).
-  const results: ExecResult[] = [...skipped];
-  for (const group of groups.values()) {
-    results.push(...(await runBatchGroup(group, ctx)));
-  }
-  return results;
-}
-
-/**
- * Execute actions emitted by the new keeper decision core. Transition actions
- * already carry the exact current oracle cell chosen by `decide`, so this path
- * does not ask `OracleSource` to search by min publish time.
  */
 export async function executeDecisions(
   actions: KeeperAction[],
