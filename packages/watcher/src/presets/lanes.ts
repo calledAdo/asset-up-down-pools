@@ -17,16 +17,22 @@ const HOUR = 60n * MIN;
  * Default BTC board: four cadences on a time grid. `createLeadSecs` is a small
  * pre-stage lead before each grid boundary (the deposit window itself is one full
  * duration). All CKB-staked at a 2% rake; swap `asset`/`rakeBps` as needed.
+ *
+ * `firstCreateAt` is the shared grid anchor for the whole board (default 0 =
+ * epoch-aligned). The four durations nest (5m|15m|1h|1d), so one anchor keeps every
+ * coarse boundary coincident with a fine one — required for cross-cadence batching.
  */
 export function defaultBtcLanes(
   feedId: Hex = BTC_USD_FEED,
   oracleIdentity: OracleIdentity = TESTNET_ORACLE_IDENTITY,
+  firstCreateAt: bigint = 0n,
 ): LaneConfig[] {
   const base = {
     feedId,
     rakeBps: 200,
     asset: { kind: "ckb" } as const,
     oracleIdentity,
+    firstCreateAt,
   };
   return [
     { ...base, label: "BTC-5m", durationSecs: 5n * MIN, createLeadSecs: 15n },

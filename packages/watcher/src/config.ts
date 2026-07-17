@@ -34,6 +34,15 @@ export interface LaneConfig {
    * one full `durationSecs` (the prior round's price window), not this value.
    */
   createLeadSecs: bigint;
+  /**
+   * Grid anchor (unix seconds): rounds tile time at `firstCreateAt + k·durationSecs`.
+   * Defaults to 0 when omitted (epoch-aligned — a 5m lane lands on :00/:05/… UTC).
+   * Use ONE shared anchor across a feed's cadences (and durations that nest, as the
+   * default board's do) so every coarse boundary coincides with a fine one — that
+   * coincidence is what lets cross-cadence transitions batch onto the single per-feed
+   * oracle cell (see `docs/timing-spec.md` §2).
+   */
+  firstCreateAt?: bigint;
 }
 
 /**

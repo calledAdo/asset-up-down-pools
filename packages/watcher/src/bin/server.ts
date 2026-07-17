@@ -101,7 +101,10 @@ async function main() {
   }
 
   const feedId = (process.env.WATCHER_FEED_ID as `0x${string}`) ?? BTC_USD_FEED;
-  const lanes = oracleIdentity ? defaultBtcLanes(feedId, oracleIdentity) : defaultBtcLanes(feedId);
+  // Shared grid anchor (unix seconds) for the whole board; 0 = epoch-aligned rounds
+  // (:00/:05/… UTC). Set WATCHER_FIRST_CREATE_AT to pin the grid to a chosen instant.
+  const firstCreateAt = BigInt(process.env.WATCHER_FIRST_CREATE_AT ?? 0);
+  const lanes = defaultBtcLanes(feedId, oracleIdentity, firstCreateAt);
 
   // For a split deployment, the single indexer aggregates pools across all keeper
   // creator locks — set WATCHER_OPERATOR_LOCK_HASHES to the comma-list of their hashes.

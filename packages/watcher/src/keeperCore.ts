@@ -32,9 +32,9 @@ export class Cadence {
   readonly firstCreateAt: bigint;
   readonly createLeadSecs: bigint;
   readonly laneKey: string;
-  readonly lane: LaneConfig & { firstCreateAt?: bigint };
+  readonly lane: LaneConfig;
 
-  constructor(lane: LaneConfig & { firstCreateAt?: bigint }) {
+  constructor(lane: LaneConfig) {
     this.lane = lane;
     this.label = lane.label;
     this.feedId = lane.feedId;
