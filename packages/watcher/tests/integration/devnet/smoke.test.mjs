@@ -10,11 +10,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  KeeperClient,
-  createPrivateKeySigner,
-  devnetConfig,
-} from "ckb-up-down-sdk";
+import { KeeperClient } from "ckb-up-down-sdk";
+import { createPrivateKeySigner } from "ckb-up-down-sdk/ckb";
+import { devnetConfig } from "ckb-up-down-sdk/presets";
 
 import { createService } from "../../../dist/index.js";
 
@@ -69,6 +67,7 @@ test("service mints a rolling pool and serves it via the API", async (t) => {
     },
     keeper,
     signer,
+    creatorLock,
   });
 
   await service.start();

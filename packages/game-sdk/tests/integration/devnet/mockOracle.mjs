@@ -14,7 +14,7 @@
 
 import { ccc } from "@ckb-ccc/core";
 
-import { oracleCommit } from "../../../dist/index.js";
+import { oracleCommit } from "../../../dist/ckb/index.js";
 
 // offckb devnet genesis `always_success` cell (from `ckb list-hashes`).
 export const ALWAYS_SUCCESS = {
@@ -104,7 +104,9 @@ export async function mintMockOracleCells(client, signer, ticks) {
     witnesses: [],
   });
   await tx.completeInputsByCapacity(signer);
-  await tx.completeFeeBy(signer, 1000n);
+  // 2000 shannons/KB: `completeFeeBy` under-sizes small txs, so the extra margin
+  // keeps the mint above the devnet min fee rate.
+  await tx.completeFeeBy(signer, 2000n);
   const txHash = await signer.sendTransaction(tx);
   await client.waitTransaction(txHash, 0, 120000);
 

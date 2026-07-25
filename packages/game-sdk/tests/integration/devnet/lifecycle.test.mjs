@@ -20,10 +20,6 @@ import { ccc } from "@ckb-ccc/core";
 import {
   KeeperClient,
   PlayerClient,
-  createClient,
-  createPrivateKeySigner,
-  computeTypeId,
-  definePoolNetworkConfig,
   redeemPayout,
   STATUS_OPEN,
   STATUS_LOCKED,
@@ -34,6 +30,8 @@ import {
   SIDE_UNDECIDED,
   VARIANT_CKB,
 } from "../../../dist/index.js";
+import { createClient, createPrivateKeySigner, computeTypeId } from "../../../dist/ckb/index.js";
+import { definePoolNetworkConfig } from "../../../dist/presets/index.js";
 
 import { mockOracleCommit, mintMockOracleCells } from "./mockOracle.mjs";
 import { deployDeps } from "./deployDeps.mjs";

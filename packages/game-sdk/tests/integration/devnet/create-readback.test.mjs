@@ -17,16 +17,9 @@ import { fileURLToPath } from "node:url";
 
 import { ccc } from "@ckb-ccc/core";
 
-import {
-  KeeperClient,
-  createClient,
-  createPrivateKeySigner,
-  computeTypeId,
-  definePoolNetworkConfig,
-  STATUS_OPEN,
-  SIDE_UNDECIDED,
-  VARIANT_CKB,
-} from "../../../dist/index.js";
+import { KeeperClient, STATUS_OPEN, SIDE_UNDECIDED, VARIANT_CKB } from "../../../dist/index.js";
+import { createClient, createPrivateKeySigner, computeTypeId } from "../../../dist/ckb/index.js";
+import { definePoolNetworkConfig } from "../../../dist/presets/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ARTIFACTS = path.resolve(here, "../../../../../deployment/artifacts");
