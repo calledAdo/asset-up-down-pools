@@ -77,8 +77,6 @@ export interface WatcherConfig {
   operatorLockHashes?: Hex[];
   /** The cadences to run (a keeper handles only these; the indexer all of them). */
   lanes: LaneConfig[];
-  /** Keeper loop cadence (seconds). */
-  pollIntervalSecs: number;
   /** Indexer cadence (seconds). */
   indexIntervalSecs: number;
   /**
@@ -108,6 +106,17 @@ export function laneKey(feedId: Hex, durationSecs: bigint): string {
 /** A pool's lane identity, inferred from its on-chain boundaries. */
 export function laneKeyOf(pool: { data: { feedId: Hex; startTime: bigint; closeTime: bigint } }): string {
   return laneKey(pool.data.feedId, pool.data.closeTime - pool.data.startTime);
+}
+
+/**
+ * The set of lane keys a keeper is configured to own. A discovered pool is "ours"
+ * iff `laneKeyOf(pool)` is in this set — i.e. it matches a configured lane on BOTH
+ * feed AND duration. Filtering on the pair (not the feed alone) keeps a per-feed
+ * keeper from reviving a retired or unconfigured duration under the same creator
+ * lock (e.g. a leftover BTC-30m pool when only 5m/15m/1h/1d are configured).
+ */
+export function laneKeySet(lanes: Pick<LaneConfig, "feedId" | "durationSecs">[]): Set<string> {
+  return new Set(lanes.map((l) => laneKey(l.feedId, l.durationSecs)));
 }
 
 /**

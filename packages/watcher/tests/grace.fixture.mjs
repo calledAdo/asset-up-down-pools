@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { voidTimeOf, laneKey, laneKeyOf, laneOracleCommit, openDb } from "../dist/index.js";
+import { voidTimeOf, laneKey, laneKeyOf, laneKeySet, laneOracleCommit, openDb } from "../dist/index.js";
 
 const pool = (startTime, closeTime, feedId = "0x" + "fe".repeat(32)) => ({
   data: { feedId, startTime: BigInt(startTime), closeTime: BigInt(closeTime) },
@@ -36,6 +36,24 @@ test("laneKey is feed+duration and laneKeyOf agrees", () => {
 test("laneKey lowercases the feed id", () => {
   const upper = "0x" + "AB".repeat(32);
   assert.equal(laneKey(upper, 900n), `0x${"ab".repeat(32)}:900`);
+});
+
+test("laneKeySet scopes a per-feed keeper by feed AND duration", () => {
+  const btc = "0x" + "b7".repeat(32);
+  const eth = "0x" + "e7".repeat(32);
+  // A BTC keeper configured for 5m + 15m only.
+  const keys = laneKeySet([
+    { feedId: btc, durationSecs: 300n },
+    { feedId: btc, durationSecs: 900n },
+  ]);
+  // Configured durations on the feed are in scope.
+  assert.ok(keys.has(laneKeyOf(pool(0, 300, btc))), "BTC-5m is owned");
+  assert.ok(keys.has(laneKeyOf(pool(0, 900, btc))), "BTC-15m is owned");
+  // Same feed, a duration NOT configured (a stray/retired BTC-30m) is rejected —
+  // this is the whole point of scoping on the pair, not the feed alone.
+  assert.ok(!keys.has(laneKeyOf(pool(0, 1800, btc))), "unconfigured BTC-30m is NOT owned");
+  // A different feed at a configured duration is rejected too.
+  assert.ok(!keys.has(laneKeyOf(pool(0, 300, eth))), "another feed is NOT owned");
 });
 
 test("laneOracleCommit is deterministic for an identity", () => {

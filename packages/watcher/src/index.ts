@@ -10,6 +10,7 @@ export {
   laneOracleCommit,
   laneKey,
   laneKeyOf,
+  laneKeySet,
   voidTimeOf,
 } from "./config.js";
 export { type OracleSource, StubOracleSource } from "./oracle/source.js";

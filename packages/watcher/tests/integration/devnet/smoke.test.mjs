@@ -63,7 +63,6 @@ test("service mints a rolling pool and serves it via the API", async (t) => {
       config,
       creatorLock,
       lanes: [lane],
-      pollIntervalSecs: 5,
       indexIntervalSecs: 5,
       dbPath: ":memory:",
       apiPort: PORT,

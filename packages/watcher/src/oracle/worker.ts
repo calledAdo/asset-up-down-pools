@@ -16,6 +16,7 @@
 import { grace, type Hex } from "ckb-up-down-sdk";
 
 import type { LaneConfig } from "../config.js";
+import { Cadence } from "../keeperCore.js";
 import type { OracleSource } from "./source.js";
 
 export interface OracleWorkerDeps {
@@ -36,8 +37,16 @@ export class OracleWorker {
   private timer?: NodeJS.Timeout;
   private firing = false;
   private stopped = true;
+  // Same anchored grid the keeper's Cadence uses, so the worker's boundaries land
+  // exactly where activate/resolve read. Sharing `Cadence` (not re-deriving epoch
+  // boundaries here) is what keeps a non-zero `firstCreateAt` coherent across the
+  // two processes — otherwise the worker would advance a cell on the epoch grid
+  // while the keeper waits on the anchored grid, and ticks would never line up.
+  private readonly cadences: Cadence[];
 
-  constructor(private readonly deps: OracleWorkerDeps) {}
+  constructor(private readonly deps: OracleWorkerDeps) {
+    this.cadences = deps.lanes.map((l) => new Cadence(l));
+  }
 
   private nowSecs(): bigint {
     return (this.deps.now ?? (() => BigInt(Math.floor(Date.now() / 1000))))();
@@ -47,13 +56,12 @@ export class OracleWorker {
   nextDue(): { time: bigint; feeds: Hex[] } {
     const now = this.nowSecs();
     const cands: { time: bigint; feedId: Hex }[] = [];
-    for (const l of this.deps.lanes) {
-      const d = l.durationSecs;
-      const g = grace(d);
-      const nb = (now / d + 1n) * d; // next boundary strictly after now
-      const prevB = nb - d;
+    for (const c of this.cadences) {
+      const g = grace(c.durationSecs);
+      const nb = c.boundaryAfter(now); // next anchored boundary strictly after now
+      const prevB = c.boundaryAtOrBefore(now); // anchored boundary at/just-before now
       const nextGrace = prevB + g > now ? prevB + g : nb + g; // next boundary+grace after now
-      cands.push({ time: nb, feedId: l.feedId }, { time: nextGrace, feedId: l.feedId });
+      cands.push({ time: nb, feedId: c.feedId }, { time: nextGrace, feedId: c.feedId });
     }
     const time = cands.reduce((m, c) => (c.time < m ? c.time : m), cands[0].time);
     const feeds = [
@@ -66,11 +74,11 @@ export class OracleWorker {
   private warmItems(): { feedId: Hex; time: bigint }[] {
     const now = this.nowSecs();
     const byFeed = new Map<string, { feedId: Hex; time: bigint }>();
-    for (const l of this.deps.lanes) {
-      const mark = (now / l.durationSecs) * l.durationSecs; // floor boundary ≤ now
-      const k = l.feedId.toLowerCase();
+    for (const c of this.cadences) {
+      const mark = c.boundaryAtOrBefore(now); // floor boundary ≤ now (anchored)
+      const k = c.feedId.toLowerCase();
       const cur = byFeed.get(k);
-      if (!cur || mark > cur.time) byFeed.set(k, { feedId: l.feedId, time: mark });
+      if (!cur || mark > cur.time) byFeed.set(k, { feedId: c.feedId, time: mark });
     }
     return [...byFeed.values()];
   }

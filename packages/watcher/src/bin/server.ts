@@ -117,10 +117,6 @@ async function main() {
     creatorLock,
     ...(operatorLockHashes.length ? { operatorLockHashes } : {}),
     lanes: selectLanes(lanes),
-    // Safety backstop only — the keeper sleeps to the next pool-state event and
-    // retries failures/skips on a short delay, so this is a long net (discovery,
-    // restart, anything it didn't drive), not the primary cadence.
-    pollIntervalSecs: Number(process.env.WATCHER_POLL_SECS ?? 60),
     indexIntervalSecs: Number(process.env.WATCHER_INDEX_SECS ?? 10),
     dbPath: process.env.WATCHER_DB_PATH ?? "./data/watcher.db",
     apiPort: Number(process.env.WATCHER_API_PORT ?? 8080),

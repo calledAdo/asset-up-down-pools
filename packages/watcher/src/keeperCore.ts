@@ -57,6 +57,13 @@ export class Cadence {
     return this.firstCreateAt + steps * this.durationSecs;
   }
 
+  /** Greatest grid boundary `≤ t` (floor). Clamped to the anchor before the grid starts. */
+  boundaryAtOrBefore(t: bigint): bigint {
+    if (t <= this.firstCreateAt) return this.firstCreateAt;
+    const steps = (t - this.firstCreateAt) / this.durationSecs;
+    return this.firstCreateAt + steps * this.durationSecs;
+  }
+
   createFireTime(boundary: bigint): bigint {
     return boundary - this.createLeadSecs;
   }

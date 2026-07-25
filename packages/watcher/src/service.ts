@@ -20,7 +20,7 @@ import {
   type Script,
 } from "ckb-up-down-sdk";
 
-import type { WatcherConfig } from "./config.js";
+import { laneKeyOf, laneKeySet, type WatcherConfig } from "./config.js";
 import { openDb, type WatcherDb } from "./db/db.js";
 import { execute, executeDecisions, type ExecContext } from "./executor.js";
 import { indexOnce } from "./indexer.js";
@@ -94,7 +94,11 @@ export function createService(deps: ServiceDeps): Service {
   const client = keeper.client;
   const deploy = keeper.deploy;
   const lanes = config.lanes;
-  const feeds = new Set(lanes.map((l) => l.feedId.toLowerCase()));
+  // A pool is in this keeper's scope iff it matches a configured lane on BOTH feed
+  // AND duration — not the feed alone. This is a per-feed keeper's ownership rule:
+  // it drives every configured duration for its feed, but never a retired/unconfigured
+  // one (e.g. a stray BTC-30m) that happens to share the creator lock.
+  const laneKeys = laneKeySet(lanes);
   // The keeper only manages ITS OWN pools (CLOSE is admin-gated to the creator lock),
   // so it lists scoped to its own creator hash — never touching other creators' pools.
   const ownCreatorHash = ccc.Script.from(creatorLock).hash();
@@ -179,7 +183,7 @@ export function createService(deps: ServiceDeps): Service {
   const listOwnPools = async (): Promise<PoolView[]> => {
     await client.cache.clear();
     return (await keeper.listPools({ creator: ownCreatorHash })).filter((p) =>
-      feeds.has(p.data.feedId.toLowerCase()),
+      laneKeys.has(laneKeyOf(p)),
     );
   };
 
@@ -208,7 +212,7 @@ export function createService(deps: ServiceDeps): Service {
         readPool: async (poolId: Hex) => {
           await client.cache.clear();
           const pool = await keeper.getPool(poolId);
-          return pool && feeds.has(pool.data.feedId.toLowerCase()) ? pool : null;
+          return pool && laneKeys.has(laneKeyOf(pool)) ? pool : null;
         },
       },
       oracle: {

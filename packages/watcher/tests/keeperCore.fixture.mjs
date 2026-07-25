@@ -71,6 +71,13 @@ test("Cadence uses operator-supplied firstCreateAt instead of epoch alignment", 
   assert.equal(c.boundaryAfter(1300n), 1600n);
   assert.equal(c.createFireTime(1300n), 1285n);
   assert.deepEqual(c.roundForCreateBoundary(1300n), { startTime: 1600n, closeTime: 1900n });
+
+  // boundaryAtOrBefore: floor on the anchored grid (used by the oracle worker so it
+  // advances the same cell moments the keeper waits on).
+  assert.equal(c.boundaryAtOrBefore(1299n), 1300n, "clamps to the anchor before the grid starts");
+  assert.equal(c.boundaryAtOrBefore(1300n), 1300n, "exact boundary is its own floor");
+  assert.equal(c.boundaryAtOrBefore(1599n), 1300n, "floors mid-round to the passed boundary");
+  assert.equal(c.boundaryAtOrBefore(1600n), 1600n);
 });
 
 test("nextWakeTime returns the lifecycle boundary in the future or now when overdue", () => {

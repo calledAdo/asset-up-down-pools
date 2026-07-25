@@ -1,11 +1,21 @@
-# Role-split deployment: one indexer (the sole projection-DB writer + the API the
-# frontend reads) and one keeper per cadence, each with its OWN wallet so they
-# never contend over the same on-chain cells.
+# Role-split deployment for one BTC board:
+#   - indexer — the sole projection-DB writer + the API the frontend reads
+#   - oracle  — the SOLE writer of the BTC feed's oracle cell (own wallet)
+#   - keeper  — drives the lifecycle for ALL configured BTC durations (5m/15m/1h/1d)
+#               in one process, so coincident-boundary transitions batch onto the
+#               single per-feed oracle cell. Own wallet + private tx_log DB.
+#
 #   docker compose --env-file .env up --build
 # Build context is the repo root so the file:../game-sdk dependency resolves.
 #
-# Each service runs the same image; WATCHER_ROLE + WATCHER_LANES + the wallet key
-# pick what it does. Pointing at a host offckb devnet: set
+# One keeper per FEED (not per cadence): all BTC durations read the same BTC oracle
+# cell, and a single process can fold their coincident resolve/activate transitions
+# into one transaction (pool_type allows one oracle dep per feed per tx). Splitting a
+# feed into per-cadence keepers would lose that batching and multiply wallets/DBs/RPC;
+# do it only later if load or failure-isolation demands it. Each keeper still owns only
+# its configured (feedId, durationSecs) lane set, so it never drives a retired duration.
+#
+# Pointing at a host offckb devnet: set
 # WATCHER_CKB_RPC_URL=http://host.docker.internal:8114 in .env.
 
 x-watcher: &watcher
@@ -20,7 +30,10 @@ x-watcher: &watcher
   restart: unless-stopped
 
 services:
-  # The single projection-DB writer + the frontend API. Indexes every lane.
+  # The single projection-DB writer + the frontend API. Indexes every lane. If the
+  # oracle/keeper use different wallets than this process, set
+  # WATCHER_OPERATOR_LOCK_HASHES in .env to the keeper's creator-lock hash so the
+  # indexer projects the keeper's pools.
   indexer:
     <<: *watcher
     environment:
@@ -29,43 +42,29 @@ services:
     ports:
       - "${WATCHER_API_PORT:-8080}:8080"
 
-  # One keeper per cadence. Each needs its OWN funded wallet (override
-  # WATCHER_CREATOR_PRIVATE_KEY per service) and writes only its private tx_log DB.
-  keeper-5m:
+  # The SOLE writer of the BTC feed's oracle cell. Advances the cell at the grid
+  # boundaries + boundaries+grace every configured duration needs (see OracleWorker).
+  # Needs its OWN funded wallet (WATCHER_KEY_ORACLE) and the live oracle wiring
+  # (WATCHER_ORACLE=live + WATCHER_ORACLE_CONFIG pointing at the Lean Oracle network).
+  oracle:
     <<: *watcher
     environment:
-      WATCHER_ROLE: keeper
-      WATCHER_LANES: BTC-5m
-      WATCHER_POLL_SECS: 5
-      WATCHER_DB_PATH: /app/packages/watcher/data/keeper-5m.db
-      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_5M:-${WATCHER_CREATOR_PRIVATE_KEY}}
+      WATCHER_ROLE: oracle
+      WATCHER_ORACLE: live
+      WATCHER_DB_PATH: /app/packages/watcher/data/oracle.db
+      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_ORACLE:-${WATCHER_CREATOR_PRIVATE_KEY}}
 
-  keeper-15m:
+  # One keeper for the whole BTC feed: WATCHER_LANES empty = all configured BTC
+  # durations. Reads (never advances) the oracle cell, so it also needs WATCHER_ORACLE=live
+  # to get a real read-only source. Own funded wallet + private tx_log DB.
+  keeper-btc:
     <<: *watcher
     environment:
       WATCHER_ROLE: keeper
-      WATCHER_LANES: BTC-15m
-      WATCHER_POLL_SECS: 15
-      WATCHER_DB_PATH: /app/packages/watcher/data/keeper-15m.db
-      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_15M:-${WATCHER_CREATOR_PRIVATE_KEY}}
-
-  keeper-1h:
-    <<: *watcher
-    environment:
-      WATCHER_ROLE: keeper
-      WATCHER_LANES: BTC-1h
-      WATCHER_POLL_SECS: 60
-      WATCHER_DB_PATH: /app/packages/watcher/data/keeper-1h.db
-      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_1H:-${WATCHER_CREATOR_PRIVATE_KEY}}
-
-  keeper-1d:
-    <<: *watcher
-    environment:
-      WATCHER_ROLE: keeper
-      WATCHER_LANES: BTC-1d
-      WATCHER_POLL_SECS: 300
-      WATCHER_DB_PATH: /app/packages/watcher/data/keeper-1d.db
-      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_1D:-${WATCHER_CREATOR_PRIVATE_KEY}}
+      WATCHER_ORACLE: live
+      WATCHER_LANES: ""
+      WATCHER_DB_PATH: /app/packages/watcher/data/keeper-btc.db
+      WATCHER_CREATOR_PRIVATE_KEY: ${WATCHER_KEY_BTC:-${WATCHER_CREATOR_PRIVATE_KEY}}
 
 volumes:
   watcher-data:

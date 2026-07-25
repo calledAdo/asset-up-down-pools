@@ -102,6 +102,15 @@ test("OracleWorker.nextDue includes boundary+grace (for finalize/VOID)", () => {
   assert.deepEqual(due.feeds, [FEED]);
 });
 
+test("OracleWorker.nextDue honours a non-zero firstCreateAt (anchored grid, not epoch)", () => {
+  // duration 300, anchor 1000 → boundaries at …1000, 1300, 1600. now=1100 → next is 1300.
+  // Epoch alignment (now/d+1)*d would give 1200; the anchor MUST shift it, so the
+  // worker advances the same cell moment the keeper's anchored Cadence waits on.
+  const anchored = { ...lane(FEED, 300n), firstCreateAt: 1000n };
+  const w = new OracleWorker({ source: noSource, lanes: [anchored], now: () => 1100n });
+  assert.equal(w.nextDue().time, 1300n, "boundary is anchored at firstCreateAt + k·duration");
+});
+
 test("OracleWorker.advance never overlaps and isolates feed errors", async () => {
   let inFlight = 0, maxConcurrent = 0, release;
   const gate = new Promise((r) => { release = r; });
