@@ -55,10 +55,22 @@ export class Keeper {
   private windingDown = false;
   private readonly retryDelaySecs: bigint;
   private readonly clock: () => bigint;
+  // Wakes/sweeps in flight. A timer's handler can be mid-await (RPC, a broadcast)
+  // when stop() is called; the `stopped` guard only blocks NEW ones, so stop() must
+  // also await the ones already running before the caller tears down the DB/wallet —
+  // otherwise a lingering handler hits a closed DB (or leaks a half-sent tx).
+  private readonly inFlight = new Set<Promise<unknown>>();
 
   constructor(private readonly deps: KeeperDeps) {
     this.retryDelaySecs = deps.retryDelaySecs ?? 5n;
     this.clock = deps.clock ?? (() => BigInt(Math.floor(Date.now() / 1000)));
+  }
+
+  /** Register a handler promise so stop() can drain it. Never rejects the tracker. */
+  private track<T>(p: Promise<T>): Promise<T> {
+    this.inFlight.add(p);
+    p.then(() => this.inFlight.delete(p), () => this.inFlight.delete(p));
+    return p;
   }
 
   async start(): Promise<void> {
@@ -77,6 +89,9 @@ export class Keeper {
   async stop(): Promise<void> {
     this.stopped = true;
     this.deps.timeline.cancelAll();
+    // Let any handler already running finish (its DB writes + broadcast) before the
+    // caller closes the DB. New wakes are blocked by `stopped`, so this drains, not grows.
+    await Promise.allSettled([...this.inFlight]);
   }
 
   setWindingDown(on: boolean): void {
@@ -85,6 +100,10 @@ export class Keeper {
 
   async onWake(dueTime: bigint, entries: WakeEntry[]): Promise<void> {
     if (this.stopped) return;
+    await this.track(this.runWake(entries));
+  }
+
+  private async runWake(entries: WakeEntry[]): Promise<void> {
     const now = await this.deps.chain.now();
     const poolEntries = entries.filter((e): e is Extract<WakeEntry, { kind: "pool" }> => e.kind === "pool");
     const createEntries = entries.filter((e): e is Extract<WakeEntry, { kind: "create" }> => e.kind === "create");
@@ -106,6 +125,10 @@ export class Keeper {
    */
   async onSweep(): Promise<void> {
     if (this.stopped) return;
+    await this.track(this.runSweep());
+  }
+
+  private async runSweep(): Promise<void> {
     const now = await this.deps.chain.now();
     const pools = await this.deps.chain.listOwnPools();
     for (const pool of pools) this.scheduleRetryOrNext(pool, now);
