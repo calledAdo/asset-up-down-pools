@@ -118,6 +118,21 @@ export async function bootstrap() {
   return { client, funder, creatorLock, config, keeper, player, devnetSecp };
 }
 
+/** Current chain time (seconds), from the tip header. */
+export async function chainNow(client) {
+  return (await client.getTipHeader()).timestamp / 1000n;
+}
+
+/** Wait until chain time reaches `target` (seconds) — e.g. to make a pool overdue. */
+export async function waitChainTime(client, target, { timeoutMs = 120000, everyMs = 2000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await chainNow(client)) >= target) return;
+    await new Promise((r) => setTimeout(r, everyMs));
+  }
+  throw new Error(`chain time did not reach ${target}`);
+}
+
 /** Poll `getPool(poolId)` until `pred(pool)` or timeout; returns the pool or throws. */
 export async function waitForPool(keeper, poolId, pred, { timeoutMs = 60000, everyMs = 2000, label = "" } = {}) {
   const deadline = Date.now() + timeoutMs;
