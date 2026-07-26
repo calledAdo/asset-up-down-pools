@@ -37,6 +37,7 @@ export class MockOracle {
     this.log = log ?? (() => {});
     this.current = new Map(); // feedLower -> OracleTick
     this.published = []; // audit trail: { feedId, publishTime, price }
+    this.reads = 0; // readCurrentTick call count — lets a test assert the keeper isn't spinning
   }
 
   #key(feedId) {
@@ -66,6 +67,7 @@ export class MockOracle {
 
   /** READER path (keeper): the feed's current tick, or null if none published yet. */
   async readCurrentTick(feedId) {
+    this.reads++;
     return this.current.get(this.#key(feedId)) ?? null;
   }
 }
