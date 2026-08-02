@@ -83,7 +83,7 @@ async function main() {
     // keeper.client / creatorLock are the watcher's @ckb-ccc/core copy; the SDK has its
     // own (runtime-compatible) copy, so cast across the type boundary (see leanSource.ts).
     const cccClient = keeper.client as unknown as LeanCccClient;
-    const oracleLockId = network.deployment.defaultPublicOracleLock.script;
+    const oracleLockId = network.deployment.canonicalPublicOracleLock.script;
     const oracleLock = { ...oracleLockId, args: oracleLockId.args ?? "0x" } as unknown as LeanScriptLike;
     const oracleClient = new LeanOracleClient({ network, cccClient });
     oracle = createLeanReadOnlySource({ client: oracleClient, oracleLock, log: (m) => console.log(`[watcher] ${m}`) });
