@@ -7,10 +7,11 @@
 //! through `createLeanReadOnlySource` and drives one pool CREATE→ACTIVATE→RESOLVE→
 //! FINALIZE→REDEEM off real prices — exactly the production keeper+worker split.
 //!
-//! Setup mints our own cells (same identity ⇒ same `oracle_commit`): the lean_oracle
-//! devnet deploy's guardian set (index 6) went stale when Wormhole rotated to 7, so we
-//! reconstruct the current set from live VAA signatures (see guardianReconstruct.mjs),
-//! deploy it + a personal oracle cell, and bind the pool to that identity.
+//! Setup mints our own oracle cell (same identity ⇒ same `oracle_commit`) bound to the
+//! live v4 devnet deployment: the lean_oracle toolbox deployed a guardian-set state cell
+//! initialized to the canonical Wormhole set 7, so the advancer's live set-7 Hermes VAAs
+//! verify against it directly — no reconstruction. We read that deployment's artifacts,
+//! mint a personal oracle cell, and bind the pool to that identity.
 //!
 //! Run from packages/watcher with the deployer env loaded + a running devnet:
 //!   node --env-file=../../deployment/.env tests/integration/devnet/keeper-lean-lifecycle.test.mjs
@@ -47,7 +48,7 @@ test("keeper drives a full lifecycle off a live Lean Oracle (real Hermes BTC/USD
   // ---- reconstruct the live guardian set + deploy our own guardian-set & oracle cells ----
   const log = (m) => t.diagnostic(`[svc] ${m}`);
   const { network, leanClient, identity, commit } = await setupLeanOracle({
-    client, signer: oracleSigner, oracleLock, samples: 20, log: (m) => t.diagnostic(`[oracle] ${m}`),
+    client, signer: oracleSigner, oracleLock, log: (m) => t.diagnostic(`[oracle] ${m}`),
   });
   t.diagnostic(`oracle ready — commit ${commit}`);
 

@@ -5,14 +5,17 @@
 //! a real BTC/USD price update from Hermes and pulls it on-chain (Wormhole VAA
 //! verified against the deployed guardian set).
 //!
-//! Deployment reuse: the lean_oracle repo's 2026-06-25 devnet deploy (oracle code +
-//! guardian set) is still live on the persistent offckb chain. We DON'T redeploy it.
-//! But its canonical oracle cell is held under an owner-bind lock we don't hold the
-//! key for, so instead we mint our OWN permissionless personal cell for the same feed
-//! via `initiateOracleDeployTx({ oracleLockScript: <our lock> })`. `oracle_commit` is
+//! Deployment: the lean_oracle repo's v4 devnet deploy (session 017: oracle-type +
+//! guardian-set-type v3 code, and a LIVE guardian-set state cell initialized to the
+//! canonical Wormhole set 7 / quorum 13) is live on the persistent offckb chain. We
+//! read its artifacts and reuse the real guardian cell directly — no reconstruction.
+//! The canonical oracle cell is held under an owner-bind lock we don't hold the key
+//! for, so we mint our OWN permissionless personal cell for the same feed via
+//! `initiateOracleDeployTx({ oracleLockScript: <our lock> })`. `oracle_commit` is
 //! identity-only (oracle-type code hash ‖ guardian-set type hash ‖ emitter) — it does
 //! NOT depend on the cell instance or its lock — so pools bind the SAME commit the
-//! canonical deployment would produce, and `find_oracle` accepts our cell.
+//! canonical deployment would produce, and `find_oracle` accepts our cell. The advancer
+//! verifies live Hermes set-7 VAAs against the deployed set-7 guardian cell.
 //!
 //! We consume the lean_oracle deployment ARTIFACTS (JSON outputs, not source) from
 //! LEAN_DEVNET_ARTIFACTS_DIR; the SDK itself is the npm `lean-oracle-sdk` the watcher
@@ -20,8 +23,6 @@
 
 import fs from "node:fs";
 import path from "node:path";
-
-import { ccc } from "@ckb-ccc/core";
 
 import { oracleCommit } from "ckb-up-down-sdk/ckb";
 
@@ -36,7 +37,6 @@ import {
 } from "../../../dist/index.js";
 
 import { RPC } from "./board.mjs";
-import { reconstructGuardianSet } from "./guardianReconstruct.mjs";
 
 /** Pyth BTC/USD — the canonical feed the devnet deploy committed to. */
 export const LEAN_FEED = "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43";
@@ -74,26 +74,27 @@ function codeDepOf(version) {
  * this harness stays independent of the sibling repo's test helpers.
  */
 export function buildLeanNetwork({ rpc = RPC, hermes = HERMES_BASE_URL } = {}) {
-  const gsTypeArt = readArtifact("devnet.guardian-set-type.json");
   const oTypeArt = readArtifact("devnet.oracle-type.json");
   const bindArt = readArtifact("devnet.owned-type-bind-lock.json");
   const gsDeploy = readArtifact("devnet.deploy-guardian-set.json").deployment;
   const oDeploy = readArtifact("devnet.deploy-oracle.json").deployment;
 
-  const gsTypeVer = latestVersion(gsTypeArt);
   const oTypeVer = latestVersion(oTypeArt);
   const bindVer = latestVersion(bindArt);
 
-  const gsTypeArgs = gsDeploy.deployed.typeIdArgs;
-  const guardianSetTypeHash = ccc.hashCkb(
-    ccc.Script.from({
-      codeHash: gsDeploy.guardianSetType.codeHash,
-      hashType: gsDeploy.guardianSetType.hashType,
-      args: gsTypeArgs,
-    }).toBytes(),
-  );
+  // The live guardian-set state cell (canonical Wormhole set 7) — read its identity
+  // straight from the deploy-guardian-set artifact; no reconstruction needed.
+  const gs = gsDeploy.guardianSetType;
+  const guardianSetType = {
+    codeHash: gs.codeHash,
+    hashType: gs.hashType,
+    args: gs.args,
+    identityVersion: gsDeploy.identityVersion,
+    codeVersion: gs.codeVersion,
+    codeDep: { outPoint: { txHash: gs.outPoint.txHash, index: BigInt(gs.outPoint.index) }, depType: gs.depType },
+  };
 
-  const defaultPublicOracleLock = {
+  const canonicalPublicOracleLock = {
     script: { codeHash: bindVer.codeHash, hashType: bindVer.hashType, args: oDeploy.ownedTypeBindLock.ownerLockHash },
     codeDep: codeDepOf(bindVer),
   };
@@ -102,8 +103,9 @@ export function buildLeanNetwork({ rpc = RPC, hermes = HERMES_BASE_URL } = {}) {
     name: "devnet",
     hermesBaseUrl: hermes,
     ckbJsonRpcUrl: rpc,
+    deploymentStatus: "available",
     deployment: {
-      defaultPublicOracleLock,
+      canonicalPublicOracleLock,
       oracleType: { codeHash: oTypeVer.codeHash, hashType: oTypeVer.hashType, codeDep: codeDepOf(oTypeVer) },
       oracleTypeVersions: Object.fromEntries(
         Object.entries(oTypeArt.deployment.versions).map(([k, v]) => [
@@ -111,13 +113,7 @@ export function buildLeanNetwork({ rpc = RPC, hermes = HERMES_BASE_URL } = {}) {
           { codeHash: v.codeHash, hashType: v.hashType, codeDep: codeDepOf(v) },
         ]),
       ),
-      guardianSetType: {
-        codeHash: gsTypeVer.codeHash,
-        hashType: gsTypeVer.hashType,
-        args: gsTypeArgs,
-        typeHash: guardianSetTypeHash,
-        codeDep: codeDepOf(gsTypeVer),
-      },
+      guardianSetType,
       pythEmitter: { chain: oDeploy.oracleConfig.emitterChain, address: oDeploy.oracleConfig.emitterAddress },
     },
   };
@@ -201,64 +197,18 @@ export function buildLeanSources({ client, network, oracleSigner, oracleLock, le
   return { reader, advancer, leanClient: lo };
 }
 
-/** Encode a guardian-set cell body: setIndex(4 LE) ‖ quorum(4 LE) ‖ n(4 LE) ‖ n×addr(20). */
-function encodeGuardianSetData({ setIndex, quorum, guardianAddresses }) {
-  const n = guardianAddresses.length;
-  const out = new Uint8Array(12 + n * 20);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, setIndex >>> 0, true);
-  dv.setUint32(4, quorum >>> 0, true);
-  dv.setUint32(8, n >>> 0, true);
-  let c = 12;
-  for (const a of guardianAddresses) {
-    const h = a.slice(2);
-    for (let i = 0; i < 20; i++) out[c + i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
-    c += 20;
-  }
-  return out;
-}
-
 /**
- * Deploy a personal guardian-set cell (a fresh type-id) holding `guardianSet`, reusing
- * the live `guardian_set_type` CODE from `network`. Returns a `deployment.guardianSetType`
- * override (its own type-id + type hash) to splice into a network config so a personal
- * oracle cell + `oracle_commit` bind to THIS guardian set.
+ * Full Mode-B oracle setup: read the live v4 devnet deployment (oracle-type code +
+ * the canonical set-7 guardian-set state cell), mint a personal oracle cell under
+ * `oracleLock` bound to that guardian identity, and return the network config + the
+ * derived `oracle_commit`. `find_oracle` accepts this oracle cell, and the advancer
+ * verifies real Hermes set-7 VAAs against the deployed set-7 guardian cell.
  */
-export async function deployGuardianSet({ client, signer, lock, network, guardianSet, log = () => {} }) {
-  const gsType = network.deployment.guardianSetType; // reuse the live guardian_set_type code
-  const data = encodeGuardianSetData(guardianSet);
-  const tx = ccc.Transaction.from({
-    outputs: [{ lock: ccc.Script.from(lock), type: { codeHash: gsType.codeHash, hashType: gsType.hashType, args: "0x" + "00".repeat(32) }, capacity: 0 }],
-    outputsData: [ccc.hexFrom(data)],
-    cellDeps: [gsType.codeDep],
-  });
-  await tx.completeInputsByCapacity(signer);
-  tx.outputs[0].type.args = ccc.hashTypeId(tx.inputs[0], 0);
-  tx.outputs[0].capacity += ccc.fixedPointFrom(8);
-  await tx.completeFeeBy(signer, ORACLE_FEE_RATE);
-  const txHash = await signer.sendTransaction(tx);
-  await client.waitTransaction(txHash, 0, 120000);
-  const typeArgs = tx.outputs[0].type.args;
-  const typeHash = ccc.hashCkb(
-    ccc.Script.from({ codeHash: gsType.codeHash, hashType: gsType.hashType, args: typeArgs }).toBytes(),
-  );
-  log(`guardian set ${guardianSet.setIndex} deployed ${txHash.slice(0, 12)} (typeHash ${typeHash.slice(0, 12)})`);
-  return { codeHash: gsType.codeHash, hashType: gsType.hashType, args: typeArgs, typeHash, codeDep: gsType.codeDep };
-}
-
-/**
- * Full Mode-B oracle setup: reconstruct the live guardian set, deploy it + a personal
- * oracle cell under `oracleLock`, and return the network config bound to them plus the
- * derived `oracle_commit`. `find_oracle` will accept this oracle cell, and the advancer
- * verifies real Hermes VAAs against the reconstructed set.
- */
-export async function setupLeanOracle({ client, signer, oracleLock, samples = 20, log = () => {} }) {
-  const guardianSet = await reconstructGuardianSet({ hermesBaseUrl: HERMES_BASE_URL, feedId: LEAN_FEED, samples, log });
+export async function setupLeanOracle({ client, signer, oracleLock, log = () => {} }) {
   const network = buildLeanNetwork();
-  network.deployment.guardianSetType = await deployGuardianSet({ client, signer, lock: oracleLock, network, guardianSet, log });
   const { leanClient } = await deployPersonalOracle({ client, signer, oracleLock, network, log });
   const identity = leanIdentity(network);
-  return { network, leanClient, identity, commit: oracleCommit(identity), guardianSet };
+  return { network, leanClient, identity, commit: oracleCommit(identity) };
 }
 
 /**
