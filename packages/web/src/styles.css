@@ -310,6 +310,9 @@ h1, h2, h3, h4 { font-family: var(--display); font-weight: 600; letter-spacing: 
 .trade { position: sticky; top: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px; box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 14px; }
 .trade h3 { margin: 0; font-size: 16px; }
 .trade > .btn { width: 100%; padding: 12px 16px; }
+.btn-ghost { background: transparent; color: var(--muted); }
+.btn-ghost:hover { color: var(--primary); }
+.withdraw-btn { margin-top: -6px; padding: 9px 16px !important; font-size: 13px; }
 
 .side-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .st { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 11px 13px; border-radius: var(--r-sm); border: 1px solid var(--line-2); background: var(--surface-2); cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); transition: border-color 0.12s, background 0.12s, color 0.12s; }

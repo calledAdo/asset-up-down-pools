@@ -58,6 +58,8 @@ export const api = {
   // writes — return an unsigned tx (molecule hex) to sign + submit
   buildDeposit: (i: { poolId: Hex; lock: LockLike; up?: string; down?: string }) =>
     post<{ tx: Hex }>("/tx/deposit", i),
+  buildWithdraw: (i: { poolId: Hex; lock: LockLike; up?: string; down?: string }) =>
+    post<{ tx: Hex }>("/tx/withdraw", i),
   buildRedeem: (i: { poolId: Hex; lock: LockLike }) => post<{ tx: Hex }>("/tx/redeem", i),
   buildBurn: (i: { poolId: Hex; lock: LockLike; sides?: number[] }) =>
     post<{ tx: Hex }>("/tx/burn", i),

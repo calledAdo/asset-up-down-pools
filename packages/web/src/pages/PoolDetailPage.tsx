@@ -9,7 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { usePool } from "../api/hooks.js";
 import type { Hex, Pool } from "../api/types.js";
-import { burnShares, deposit, redeem, type TxContext } from "../tx/actions.js";
+import { burnShares, deposit, redeem, withdraw, type TxContext } from "../tx/actions.js";
 import { useWallet } from "../wallet/useWallet.js";
 import { EmptyState, ErrorState, Skeleton } from "../ui/states.js";
 import { TugBar } from "../ui/TugBar.js";
@@ -199,6 +199,19 @@ function TradePanel({ pool, initialSide }: { pool: Pool; initialSide: Side }) {
           >
             {pending ? "Submitting…" : `Buy ${side.toUpperCase()}`}
           </button>
+
+          <button
+            className="btn btn-ghost withdraw-btn"
+            disabled={pending || amt <= 0}
+            onClick={() => run(() => withdraw(ctx, {
+              poolId: pool.poolId,
+              upAmount: side === "up" ? ckbToShannons(amount) : 0n,
+              downAmount: side === "down" ? ckbToShannons(amount) : 0n,
+            }))}
+          >
+            {pending ? "Submitting…" : `Withdraw ${side.toUpperCase()}`}
+          </button>
+          <p className="muted small">Pull back staked {side.toUpperCase()} while the round is still open.</p>
         </>
       ) : settled ? (
         <button className="btn btn-primary" disabled={pending} onClick={() => run(() => redeem(ctx, { poolId: pool.poolId }))}>

@@ -36,6 +36,20 @@ export async function deposit(
   return signAndSend(ctx.signer, tx);
 }
 
+/** Withdraw staked shares back out of an OPEN pool (the inverse of deposit). */
+export async function withdraw(
+  ctx: TxContext,
+  args: { poolId: Hex; upAmount: bigint; downAmount: bigint },
+): Promise<Hex> {
+  const { tx } = await api.buildWithdraw({
+    poolId: args.poolId,
+    lock: ctx.lock,
+    up: args.upAmount.toString(),
+    down: args.downAmount.toString(),
+  });
+  return signAndSend(ctx.signer, tx);
+}
+
 /** Claim winnings or a void refund. */
 export async function redeem(ctx: TxContext, args: { poolId: Hex }): Promise<Hex> {
   const { tx } = await api.buildRedeem({ poolId: args.poolId, lock: ctx.lock });
