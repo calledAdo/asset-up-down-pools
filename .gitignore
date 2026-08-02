@@ -48,8 +48,10 @@ Thumbs.db
 *~
 *.log
 
-# --- Claude Code local settings (machine-specific permissions) ---
+# --- Agent tooling (machine-local: skills, settings, per-agent config) ---
 .claude/
+.agents/
+.codex/
 
 # --- Cross-agent local timeline ---
 llmtimeline/
