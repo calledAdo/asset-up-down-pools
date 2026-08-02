@@ -16,28 +16,42 @@ The chain is the source of truth; the DB is a refreshable projection. The watche
 provides liveness + indexing, not safety — the contract authenticates all
 prices/winners via oracle `publish_time`.
 
-## Status: v1 (oracle deferred)
+## Status
 
-Oracle wiring is pluggable behind `OracleSource`; v1 ships the no-op
-`StubOracleSource`. So **CREATE and CLOSE (oracle-free) fire live**, while
-activate/resolve/finalize are planned + built but **skipped (logged)** until a real
-source is wired (`ckb-up-down-sdk/oracle`). Corrections are modeled but not wired.
+The real oracle path is wired and verified live on devnet end-to-end. Oracle access is
+pluggable behind `OracleSource`: the `oracle` role runs an `OracleWorker` that advances each
+feed's Lean Oracle cell from real Pyth/Hermes updates (`ckb-up-down-sdk/oracle` +
+`lean-oracle-sdk`), while keepers read the cell as a pure `ReadOnlyOracleSource`. A no-op
+`StubOracleSource` remains the default when `WATCHER_ORACLE` is unset (CREATE and CLOSE still
+fire; activate/resolve/finalize are skipped + logged). Set `WATCHER_ORACLE=live` for the real
+source. Corrections (CORRECT-start/settle) and VOID are modeled and driven by the keeper.
 
 ## Architecture
 
-Pure-core + thin-shell. The **planner** (`src/planner.ts`) is pure —
-`(now, pools, lanes) -> Action[]` — and exhaustively unit-tested. The
-indexer, executor, and API are I/O shells around it and the DB.
+The keeper is **edge-triggered and self-scheduling**: every pool and cadence carries its own
+timer to its next due moment, and at fire time a pure `decide(pool, now, tick)` derives the
+action from fresh chain state (never a stored action), so third-party transitions and crash
+recovery take the same path. A low-frequency safety sweep re-derives the schedule from chain
+truth as a backstop. The indexer, executor, oracle worker, and API are I/O shells around the
+pure core (`keeperCore.ts`) and the DB.
 
 ```
 src/
   config.ts        lanes + service knobs; grace/voidTime/lane helpers (reuse SDK)
-  planner.ts       PURE decision core
+  keeperCore.ts    PURE core: Cadence grid math, Timeline scheduler, decide/nextWakeTime
+  keeper.ts        edge-triggered keeper (onWake single-flight, onSweep backstop)
   actions.ts       Action ADT
   indexer.ts       chain -> SQLite projection
-  executor.ts      Action -> tx via KeeperClient; tx_log idempotency
+  executor.ts      Action -> tx via KeeperClient; batch-by-cell + tx_log idempotency
+  reconcile.ts     confirmed post-state read after execution
+  mutex.ts         per-wallet serialized tx queue
   odds.ts          parimutuel display odds (reuse SDK redeemPayout/mulDivFloor)
-  oracle/source.ts OracleSource seam + stub
+  oracle/
+    source.ts      OracleSource seam + StubOracleSource
+    worker.ts      OracleWorker — sole cell writer, self-schedules to boundaries+grace
+    leanSource.ts  Lean Oracle reader (keeper) + advancer (worker) via lean-oracle-sdk
+    liveSource.ts  LiveOracleSource effects
+    leanNetwork.ts load a lean-oracle deployment config + derive OracleIdentity
   db/              schema + better-sqlite3 repo
   api/server.ts    Fastify routes
   service.ts       compose db + workers + API (start/stop)
@@ -53,8 +67,8 @@ src/
 | `GET /lanes` | configured lanes + each lane's current OPEN pool |
 | `GET /pools?status=&lane=` | list/filter pools (with odds) |
 | `GET /pools/:poolId` | pool detail: totals, odds, prices, timing, status |
-| `GET /pools/:poolId/positions?lock=` | a holder's position in one pool |
-| `GET /positions?lock=<lockHash>` | a holder's positions across pools |
+| `GET /pools/:poolId/positions?address=` | a holder's position in one pool (CKB address) |
+| `GET /positions?address=<ckbAddress>` | a holder's positions across pools (CKB address) |
 | `GET /history?lane=` | finalized/void rounds |
 
 Bigints are serialized as decimal strings; permissive CORS for browser use.

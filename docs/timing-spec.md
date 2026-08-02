@@ -136,19 +136,21 @@ header manipulation can't touch any of them:
 | `VOID` (LOCKED→VOID) | oracle `publish_time ≥ void_time` (no resolution) → refund |
 | `FINALIZE` (SETTLED→FINALIZED) | oracle `publish_time ≥ void_time` |
 
-(Only `DEPOSIT` and `CLOSE` still read the header timestamp — deposit for its `now <
-start_time` cutoff, see the ⚠️ below; close for the duration-proportional teardown grace `clamp(duration·8, 1h, 7d)`.)
+(Only `CLOSE` still reads the header timestamp — for the duration-proportional teardown grace
+`clamp(duration·8, 1h, 7d)`. `DEPOSIT` has **no** clock gate; it is bounded by status alone, see
+the ⚠️ below.)
 
-> ⚠️ **The DEPOSIT lower bound is the exception.** `DEPOSIT` requires
-> `now < start_time`, but `now` is a header-dep timestamp the tx author chooses — they can
-> always reference a block from *before* `start_time`, so this check passes regardless of
-> real time. **The real deposit cutoff is the `OPEN→LOCKED` transition, not the clock.**
-> A pool left un-activated past `start_time` can still admit (late, hindsight-informed)
-> bets. Mitigation is operational: **prompt permissionless activation at `start_time`**
-> locks the pool; honest winners are economically motivated to do it (a late deposit on the
-> winning side dilutes them). Proving `now ≤ T` on-chain in a UTXO system is not generally
-> possible (`since`/median-time only proves `now ≥ T`), so this is a liveness assumption,
-> not an automatic guarantee.
+> ⚠️ **DEPOSIT has no clock gate — the cutoff is `OPEN→LOCKED`, not the clock.** `validate_deposit`
+> reads no header timestamp: a deposit only validates on `OPEN→OPEN`, and `ACTIVATE`
+> (`OPEN→LOCKED`) leaves OPEN the instant `start_price` is set, so "start price set" and
+> "deposits closed" are the same event. This is deliberate — proving `now ≤ T` on-chain in a UTXO
+> system is not generally possible (`since`/median-time only proves `now ≥ T`), so a header-based
+> `now < start_time` check bought nothing (the tx author picks the header dep and can always
+> reference a pre-`start_time` block). A pool left un-activated past `start_time` can therefore
+> still admit (late, hindsight-informed) bets. Mitigation is operational: **prompt permissionless
+> activation at `start_time`** locks the pool; honest winners are economically motivated to do it
+> (a late deposit on the winning side dilutes them). So this is a liveness assumption, not an
+> automatic guarantee.
 
 ---
 

@@ -6,18 +6,26 @@
 
 ---
 
-## 1. Topology — one lane cell per (feed × cadence)
+## 1. Topology — one oracle cell per **feed** (shared across cadences)
 
-A **lane** = a feed and a round cadence, e.g. `(BTC/USD, 15m)`, `(BTC/USD, 1d)`. Each
-lane owns **one** dedicated oracle cell for its entire life. Pools in a lane are
-back-to-back: `pool_n.close_time == pool_{n+1}.start_time`, so the lane's boundary
-timestamps are **strictly increasing** — the cell only ever advances forward, which the
-oracle's monotonicity requires. Overlapping cadences (15m vs 1d) interleave boundaries,
-so each gets its own cell.
+A **lane** = a feed and a round cadence, e.g. `(BTC/USD, 15m)`, `(BTC/USD, 1d)`. All lanes of
+the same feed share **one** dedicated oracle cell — the cell is per *feed*, not per *(feed ×
+cadence)*. The oracle only requires that `publish_time` advances forward, and every lane's
+boundaries are wall-clock timestamps, so a single cell advancing through the **union** of all
+the feed's boundaries serves every cadence: each transition reads the cell at/after its own
+boundary. Overlapping cadences (15m vs 1d) just interleave into that one forward-advancing
+sequence.
+
+> **Superseded:** an earlier draft gave each `(feed × cadence)` its own cell. That was dropped
+> in favour of one cell per feed, because a single transaction can carry only one version of a
+> given feed's oracle dep — so **coincident boundaries across cadences can only batch into one
+> transaction if they share the same cell** (see §2). Per-cadence cells would forfeit that
+> batching and multiply cells/wallets. This is why the watcher runs one oracle writer + one
+> keeper *per feed* (all its durations), not per cadence.
 
 ```
-lane (BTC/USD, 15m):  cell advances …→ start₁ → close₁=start₂ → close₂=start₃ →…
-                       one oracle cell, forever
+feed BTC/USD:  one cell advances …→ b₁ → b₂ → b₃ → b₄ →…
+               through the union of every cadence's boundaries (15m ∪ 1d ∪ …)
 ```
 
 ---
@@ -67,7 +75,8 @@ pin + price band** is the safety boundary.
 
 ## 4. Deployment & lock — permissionless
 
-- Deploy once per lane via `lean-oracle-sdk` `initiateOracleDeployTx`.
+- Deploy once per **feed** (shared by all its cadences, §1) via `lean-oracle-sdk`
+  `initiateOracleDeployTx`.
 - **Lock: permissionless `owned_type_bind_lock`.** Anyone (in practice, the winners
   racing to claim) can advance the cell and resolve — no keeper, no liveness trust.
 - **Griefing resistance comes from the band, not the lock** (see

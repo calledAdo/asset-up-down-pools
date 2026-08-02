@@ -12,13 +12,14 @@ redeem pro-rata against the losing side — fully on-chain, no custodian, no pro
 ## Layout
 
 ```
-ARCHITECTURE.md            system design (source of truth)
-docs/
+docs/                      system design (source of truth)
   pool_type-spec.md        PoolCell byte layout + per-transition validation rules
   share_xudt-spec.md       UP/DOWN share token (pool-gated mint/burn)
   timing-spec.md           oracle publish_time contest + grace/void timing
   oracle-lane-spec.md      dedicated oracle-cell lane topology & advancement
-DRAFT.md                   original ideation (superseded by ARCHITECTURE.md)
+  keeper-redesign.md       edge-triggered, self-scheduling keeper design
+  devnet-test-plan.md      live devnet validation scenarios (Mode-A/Mode-B)
+DRAFT.md                   original ideation (superseded by the specs in docs/)
 crates/up_down/            Rust workspace
   contracts/
     common/                PoolData layout, oracle decode, constants, errors
@@ -30,6 +31,8 @@ crates/up_down/            Rust workspace
 deployment/                TypeScript deploy toolbox (code-deploy + promote + consistency)
 packages/
   game-sdk/                TypeScript SDK (PoolData codec, oracle commit, script derivation)
+  watcher/                 operational backend: keeper + oracle worker + indexer + read API
+  web/                     player-facing SPA (Vite + React); reads the watcher, wallet signs
 Makefile                   build / test entry points
 ```
 
@@ -56,4 +59,4 @@ always run `contracts-build` first (or after changing any contract).
 - **Oracle identity:** pinned per-pool by `oracle_commit = H(code_hash ‖ guardian_set_type_hash
   ‖ emitter_chain ‖ emitter_address)`, recomputed from the dep cell.
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`docs/`](docs/) for the full design.
+See [`docs/`](docs/) for the full design.
