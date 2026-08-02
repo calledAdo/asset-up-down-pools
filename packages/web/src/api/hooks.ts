@@ -38,11 +38,11 @@ export function usePool(poolId: Hex | undefined) {
   });
 }
 
-export function usePositions(lock: Hex | undefined) {
+export function usePositions(address: string | undefined) {
   return useQuery({
-    queryKey: ["positions", lock],
-    queryFn: () => api.positions(lock!),
-    enabled: Boolean(lock),
+    queryKey: ["positions", address],
+    queryFn: () => api.positions(address!),
+    enabled: Boolean(address),
     refetchInterval: POLL_MS,
   });
 }

@@ -6,7 +6,9 @@
 
 export type NetworkName = "devnet" | "testnet" | "mainnet";
 
-const env = import.meta.env;
+// Vite injects `import.meta.env`; under a plain Node runner (tests) it's absent, so
+// fall back to an empty object and the defaults below.
+const env = import.meta.env ?? {};
 
 export const WATCHER_API_URL: string =
   (env.VITE_WATCHER_API_URL as string | undefined)?.replace(/\/$/, "") ?? "http://127.0.0.1:8080";

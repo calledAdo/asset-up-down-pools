@@ -1,5 +1,6 @@
-//! "My positions": the connected wallet's holdings across all pools, keyed by its
-//! lock hash. Each row links to the pool so the user can redeem or reclaim.
+//! "My positions": the connected wallet's holdings across all pools, looked up by its
+//! CKB address (the watcher resolves it to a lock script). Each row links to the pool
+//! so the user can redeem or reclaim.
 
 import { Link } from "react-router-dom";
 
@@ -9,8 +10,8 @@ import { EmptyState, ErrorState, Skeleton } from "../ui/states.js";
 import { fmtCkb, shortId } from "../format.js";
 
 export function PositionsPage() {
-  const { connected, lockHash, open } = useWallet();
-  const { data: positions, isLoading, error } = usePositions(lockHash);
+  const { connected, address, open } = useWallet();
+  const { data: positions, isLoading, error } = usePositions(address);
 
   if (!connected) {
     return (

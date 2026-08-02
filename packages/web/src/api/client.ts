@@ -49,8 +49,10 @@ export const api = {
       lane: filter?.lane,
     }),
   pool: (poolId: Hex) => get<Pool>(`/pools/${poolId}`),
-  poolPositions: (poolId: Hex, lock: Hex) => get<Position[]>(`/pools/${poolId}/positions`, { lock }),
-  positions: (lock: Hex) => get<Position[]>("/positions", { lock }),
+  // Positions are looked up by the holder's CKB address; the watcher resolves it to a
+  // lock script for the on-chain query (a lock *hash* can't be reversed into a script).
+  poolPositions: (poolId: Hex, address: string) => get<Position[]>(`/pools/${poolId}/positions`, { address }),
+  positions: (address: string) => get<Position[]>("/positions", { address }),
   history: (lane?: string) => get<Pool[]>("/history", { lane }),
 
   // writes — return an unsigned tx (molecule hex) to sign + submit
