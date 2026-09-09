@@ -1,0 +1,59 @@
+/* The divided bar. Same object as before, but drawn to be READ at a glance
+   rather than scanned in a fourteen-row table — 14px tall, rounded, with the
+   two sides labelled underneath in words. */
+
+.wrap { width: 100%; }
+
+.track {
+  position: relative;
+  display: flex;
+  height: 14px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: var(--sunk);
+}
+.lg .track { height: 20px; }
+.sm .track { height: 10px; }
+
+.up { background: var(--up); transition: width var(--slow); }
+.down { background: var(--down); transition: width var(--slow); }
+
+/* Your own money, before it is in the pot. Striped, and the stripes are
+   OPAQUE — a translucent stripe over the solid side it joins composites back
+   to the solid side and the whole signal disappears. */
+.ghost { transition: width var(--slow); }
+.ghostUp {
+  background: repeating-linear-gradient(135deg, var(--up) 0 5px, var(--up-wash) 5px 10px);
+}
+.ghostDown {
+  background: repeating-linear-gradient(135deg, var(--down) 0 5px, var(--down-wash) 5px 10px);
+}
+
+/* An empty pot is NOT a 50/50 split, so no divide is drawn on it at all —
+   there is nothing to divide. It says so in words instead. */
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  border-radius: var(--r-pill);
+  background: var(--sunk);
+  border: 1.5px dashed var(--line);
+}
+.lg .empty { height: 20px; }
+
+/* A pot with money on one side only. Ringed, because as it stands it voids. */
+.lonely { box-shadow: 0 0 0 2px var(--void-wash), 0 0 0 3.5px var(--void); border-radius: var(--r-pill); }
+
+/* The two sides, in words, under the bar. Colour is never doing this alone. */
+.legend {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-4);
+  margin-top: var(--s-3);
+}
+.side { display: flex; align-items: center; gap: 7px; font-size: var(--t-caption); font-weight: 600; }
+.sideUp { color: var(--up-text); }
+.sideDown { color: var(--down-text); }
+.amount { color: var(--ink-3); font-weight: 500; }

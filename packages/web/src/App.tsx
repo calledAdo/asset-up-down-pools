@@ -1,51 +1,54 @@
 import { Suspense, lazy } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 
 import { ConnectButton } from "./ui/ConnectButton.js";
-import { ThemeSwitcher } from "./ui/ThemeSwitcher.js";
-import { Brand } from "./ui/Brand.js";
 import { BackendBanner } from "./ui/BackendBanner.js";
-import { Skeleton } from "./ui/states.js";
-import { NETWORK } from "./config.js";
+import { Mark } from "./ui/glyphs.js";
+import { BRAND, NETWORK } from "./config.js";
+import css from "./App.module.css";
 
-// Route-level code splitting: each page is its own chunk.
-const LanesPage = lazy(() => import("./pages/LanesPage.js").then((m) => ({ default: m.LanesPage })));
-const PoolDetailPage = lazy(() => import("./pages/PoolDetailPage.js").then((m) => ({ default: m.PoolDetailPage })));
-const PositionsPage = lazy(() => import("./pages/PositionsPage.js").then((m) => ({ default: m.PositionsPage })));
-const HistoryPage = lazy(() => import("./pages/HistoryPage.js").then((m) => ({ default: m.HistoryPage })));
+const RoundsPage = lazy(() => import("./pages/RoundsPage.js").then((m) => ({ default: m.RoundsPage })));
+const RoundPage = lazy(() => import("./pages/RoundPage.js").then((m) => ({ default: m.RoundPage })));
+
+const navClass = ({ isActive }: { isActive: boolean }) => (isActive ? css.on : undefined);
 
 export function App() {
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <Brand />
-          <span className="net">{NETWORK}</span>
-        </div>
-        <nav className="nav">
-          <NavLink to="/" end>Markets</NavLink>
-          <NavLink to="/positions">Positions</NavLink>
-          <NavLink to="/history">History</NavLink>
+    <div className={css.app}>
+      <a className={css.skip} href="#main">Skip to the board</a>
+
+      <header className={css.bar}>
+        <NavLink to="/" className={css.mark} aria-label={`${BRAND} — home`}>
+          <Mark />
+          <span className={css.word}>{BRAND}</span>
+        </NavLink>
+
+        <nav className={css.nav} aria-label="Main">
+          <NavLink to="/" end className={navClass}>The board</NavLink>
+          <NavLink to="/stakes" className={navClass}>Your bets</NavLink>
+          <NavLink to="/results" className={navClass}>Results</NavLink>
         </nav>
-        <ThemeSwitcher />
-        <ConnectButton />
+
+        <div className={css.right}>
+          <span className={css.net}>{NETWORK}</span>
+          <ConnectButton />
+        </div>
       </header>
 
-      <BackendBanner />
-
-      <main className="content">
-        <Suspense fallback={<Skeleton rows={3} />}>
+      <main id="main" className={css.main}>
+        <BackendBanner />
+        <Suspense fallback={<div className="skeleton skeleton-card" />}>
           <Routes>
-            <Route path="/" element={<LanesPage />} />
-            <Route path="/pools/:poolId" element={<PoolDetailPage />} />
-            <Route path="/positions" element={<PositionsPage />} />
-            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/" element={<RoundsPage />} />
+            <Route path="/rounds/:poolId" element={<RoundPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
       </main>
 
-      <footer className="footer">
-        PARIMUTUEL BTC UP/DOWN ON CKB · READS FROM THE WATCHER · TXS BUILT SERVER-SIDE, SIGNED IN YOUR WALLET
+      <footer className={css.foot}>
+        There's no house here — you win the other side's money. Your stake is yours until the
+        round locks.
       </footer>
     </div>
   );

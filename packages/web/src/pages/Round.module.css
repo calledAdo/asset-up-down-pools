@@ -1,0 +1,153 @@
+.back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--ink-3);
+  font-size: var(--t-caption);
+  font-weight: 500;
+  margin-bottom: var(--s-4);
+}
+.back:hover { color: var(--ink); }
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 420px);
+  gap: var(--s-5);
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+}
+
+.panel { padding: var(--s-6); }
+
+/* ── the round itself ──────────────────────────────────────────────────── */
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  margin-bottom: var(--s-5);
+}
+.lane { font-size: var(--t-title); font-weight: 600; letter-spacing: -0.015em; }
+.laneSub { color: var(--ink-3); font-size: var(--t-caption); margin-top: 2px; }
+
+.clockRow { display: flex; align-items: baseline; gap: var(--s-3); margin-bottom: var(--s-2); }
+.clock { font-size: var(--t-hero); font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+.clockUrgent { font-weight: 800; }
+.clockLabel { color: var(--ink-3); }
+
+.pot { color: var(--ink-2); font-size: var(--t-caption); margin-bottom: var(--s-5); }
+.pot strong { color: var(--ink); font-weight: 600; }
+
+/* ── how it settles ────────────────────────────────────────────────────── */
+.rules { margin-top: var(--s-6); display: grid; gap: var(--s-4); }
+.ruleTitle { margin-bottom: var(--s-4); font-size: var(--t-lead); font-weight: 600; }
+.rule { display: grid; gap: 2px; }
+.ruleKey { font-size: var(--t-caption); font-weight: 600; color: var(--ink); }
+.ruleBody { font-size: var(--t-caption); color: var(--ink-2); line-height: 1.55; }
+
+/* ── the ticket ────────────────────────────────────────────────────────── */
+.ticketTitle { font-size: var(--t-lead); font-weight: 600; margin-bottom: var(--s-5); }
+
+.field { margin-bottom: var(--s-5); }
+.fieldLabel { display: block; margin-bottom: var(--s-3); font-weight: 600; font-size: var(--t-body); }
+
+.sides { display: flex; gap: var(--s-3); }
+.side {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 72px;
+  padding: var(--s-4);
+  border-radius: var(--r-md);
+  background: var(--sunk);
+  border: 2px solid transparent;
+  transition: border-color var(--fast), background var(--fast);
+}
+.sideName { font-weight: 600; font-size: var(--t-body); }
+.sideMult { font-size: var(--t-caption); color: var(--ink-3); }
+.sideOnUp { background: var(--up-wash); border-color: var(--up); }
+.sideOnUp .sideName, .sideOnUp .sideMult { color: var(--up-text); }
+.sideOnDown { background: var(--down-wash); border-color: var(--down); }
+.sideOnDown .sideName, .sideOnDown .sideMult { color: var(--down-text); }
+
+.amount {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-md);
+  background: var(--sunk);
+  border: 2px solid transparent;
+}
+.amount:focus-within { border-color: var(--ink-3); }
+.input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  padding: 0;
+}
+.input::placeholder { color: var(--ink-3); }
+.unit { color: var(--ink-3); font-weight: 500; }
+
+.chips { display: flex; gap: var(--s-2); margin-top: var(--s-3); }
+.chip {
+  flex: 1;
+  min-height: 40px;
+  border-radius: var(--r-sm);
+  background: var(--sunk);
+  color: var(--ink-2);
+  font-size: var(--t-caption);
+  font-weight: 600;
+  transition: background var(--fast), color var(--fast);
+}
+.chip:hover { color: var(--ink); }
+.chipOn { background: var(--ink); color: var(--card); }
+
+/* ── what your money does ──────────────────────────────────────────────────
+   The one thing a pool has to say that a book never does: joining a side
+   makes it pay less, and this is the sentence that says so. */
+.effect {
+  padding: var(--s-5);
+  border-radius: var(--r-md);
+  background: var(--sunk);
+  margin-bottom: var(--s-5);
+}
+.dilution { font-size: var(--t-body); line-height: 1.55; }
+.dilution strong { font-weight: 600; }
+.dilutionIdle { color: var(--ink-3); }
+
+.figures {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-4);
+  margin-top: var(--s-5);
+  padding-top: var(--s-5);
+  border-top: 1px solid var(--line);
+}
+.figure { min-width: 0; }
+.figureRight { text-align: right; }
+.figureLabel { font-size: var(--t-caption); color: var(--ink-3); margin-bottom: 2px; }
+.figureValue { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.figureLoss { color: var(--void); }
+
+.warn { margin-bottom: var(--s-5); }
+
+.go { width: 100%; }
+.fine {
+  margin-top: var(--s-3);
+  font-size: var(--t-caption);
+  color: var(--ink-3);
+  text-align: center;
+  line-height: 1.5;
+}
+.status { margin-top: var(--s-4); }

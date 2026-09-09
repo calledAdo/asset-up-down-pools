@@ -1,0 +1,106 @@
+.head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-6);
+}
+.headText { max-width: 52ch; }
+.headText p { color: var(--ink-2); margin-top: var(--s-2); }
+
+.filters { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+.filter {
+  padding: 9px var(--s-4);
+  border-radius: var(--r-pill);
+  font-size: var(--t-caption);
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  min-height: 40px;
+  transition: border-color var(--fast), background var(--fast);
+}
+.filter:hover { border-color: var(--ink-3); }
+/* Selected is ink, never a side colour — a filter is not a bet. */
+.filterOn { background: var(--ink); border-color: var(--ink); color: var(--card); }
+
+/* ── the grid ──────────────────────────────────────────────────────────────
+   One round per card, two across at most. The previous design put sixteen
+   rounds on one screen; this puts four, and the rest are a scroll away. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: var(--s-5);
+}
+@media (max-width: 460px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  padding: var(--s-6);
+  height: 100%;
+  transition: box-shadow var(--fast);
+}
+/* The two buttons and the link sit on the same line across every card in a
+   row, whatever the content above them does. Cards that jog up and down
+   against each other are the thing that makes a board look untidy. */
+.actions { margin-top: auto; }
+.card:hover { box-shadow: var(--shadow-lift); }
+
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
+.lane { font-size: var(--t-lead); font-weight: 600; letter-spacing: -0.01em; }
+.laneSub { color: var(--ink-3); font-size: var(--t-caption); margin-top: 2px; }
+
+/* The clock is the biggest thing on the card, because it decides whether you
+   can still act at all. */
+.clockRow { display: flex; align-items: baseline; gap: var(--s-3); }
+.clock { font-size: var(--t-display); font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+/* Under a minute it goes heavier. No new colour — weight does it, so the page
+   never has a third hue competing with the two that mean something. */
+.clockUrgent { font-weight: 800; }
+.clockLabel { color: var(--ink-3); font-size: var(--t-caption); }
+
+.pot { color: var(--ink-2); font-size: var(--t-caption); margin-top: var(--s-3); }
+.pot strong { color: var(--ink); font-weight: 600; }
+
+/* ── what each side pays ─────────────────────────────────────────────────── */
+.pays { display: flex; gap: var(--s-3); }
+.pay {
+  flex: 1;
+  padding: var(--s-4);
+  border-radius: var(--r-md);
+  background: var(--sunk);
+  min-width: 0;
+}
+.payUp { background: var(--up-wash); }
+.payDown { background: var(--down-wash); }
+.payLabel { font-size: var(--t-caption); font-weight: 600; margin-bottom: 2px; }
+.payLabelUp { color: var(--up-text); }
+.payLabelDown { color: var(--down-text); }
+.payValue { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; }
+/* No multiple to quote — the round would void. An em dash, never a fake 1.00×. */
+/* Same size as a real figure so the row keeps its height — only the colour
+   and the glyph change. A shorter em dash would unlevel the whole card. */
+.payNone { font-size: 26px; font-weight: 600; line-height: 1.15; color: var(--void); }
+.payNote { font-size: var(--t-caption); color: var(--ink-3); margin-top: 2px; }
+
+.actions { display: flex; gap: var(--s-3); margin-top: auto; }
+
+.more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--ink-3);
+  font-size: var(--t-caption);
+  font-weight: 500;
+}
+.more:hover { color: var(--ink); }

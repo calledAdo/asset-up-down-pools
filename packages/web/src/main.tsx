@@ -5,7 +5,9 @@ import { BrowserRouter } from "react-router-dom";
 
 import { App } from "./App.js";
 import { WalletProvider } from "./wallet/WalletProvider.js";
-import "./styles.css";
+import "./styles/tokens.css";
+import "./styles/base.css";
+import "./styles/shared.css";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 5_000 } },

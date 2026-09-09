@@ -1,0 +1,71 @@
+.app { min-height: 100dvh; display: flex; flex-direction: column; }
+
+.skip {
+  position: absolute; left: -9999px; top: 8px; z-index: 100;
+  padding: 12px 20px; background: var(--ink); color: var(--card);
+  border-radius: var(--r-md);
+}
+.skip:focus { left: 8px; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+  padding: var(--s-4) var(--gut);
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.mark { display: inline-flex; align-items: center; gap: var(--s-3); min-height: 44px; }
+.word { font-size: var(--t-title); font-weight: 700; letter-spacing: -0.02em; }
+
+.nav { display: flex; gap: var(--s-1); }
+.nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--s-4);
+  border-radius: var(--r-md);
+  font-size: var(--t-body);
+  font-weight: 500;
+  color: var(--ink-2);
+  transition: background var(--fast), color var(--fast);
+}
+.nav a:hover { background: var(--sunk); color: var(--ink); }
+/* Active is ink on a wash — never a side colour. */
+.on { color: var(--ink) !important; background: var(--sunk); font-weight: 600; }
+
+.right { display: flex; align-items: center; gap: var(--s-4); margin-left: auto; }
+
+.net {
+  font-size: var(--t-caption);
+  font-weight: 500;
+  color: var(--ink-3);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--sunk);
+}
+
+.main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: var(--s-7) var(--gut) var(--s-8);
+}
+
+.foot {
+  padding: var(--s-6) var(--gut) var(--s-7);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--t-caption);
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .bar { gap: var(--s-3); }
+  .nav { order: 3; width: 100%; }
+  .nav a { flex: 1; justify-content: center; }
+  .main { padding-top: var(--s-5); }
+}

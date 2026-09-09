@@ -1,0 +1,108 @@
+/* Primitives used on more than one screen. */
+
+/* ── cards ─────────────────────────────────────────────────────────────────
+   The unit of the whole product: one round, one card, room around it. */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+
+/* ── buttons ───────────────────────────────────────────────────────────────
+   Big enough to hit without aiming. 52px on the primary actions, because the
+   main thing you do here is pick one of two sides on a phone with seconds
+   left, and a 32px control is the wrong tool for that. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: 52px;
+  padding: 0 var(--s-5);
+  border-radius: var(--r-md);
+  font-size: var(--t-body);
+  font-weight: 600;
+  transition: background var(--fast), border-color var(--fast), transform var(--fast), box-shadow var(--fast);
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.45; }
+
+.btn-primary { background: var(--ink); color: var(--card); }
+.btn-primary:hover:not(:disabled) { background: #fff; }
+
+.btn-secondary { background: var(--card); color: var(--ink); border: 1.5px solid var(--line); }
+.btn-secondary:hover:not(:disabled) { border-color: var(--ink-3); }
+
+.btn-quiet { color: var(--ink-2); }
+.btn-quiet:hover:not(:disabled) { color: var(--ink); background: var(--sunk); }
+
+.btn-sm { min-height: 40px; padding: 0 var(--s-4); font-size: var(--t-caption); }
+
+/* The two side buttons. These are the ONLY controls allowed to wear a side's
+   colour, because picking a side is literally what they do. */
+.btn-up { background: var(--up-wash); color: var(--up-text); border: 1.5px solid var(--up); }
+.btn-up:hover:not(:disabled) { background: var(--up-hover); }
+.btn-down { background: var(--down-wash); color: var(--down-text); border: 1.5px solid var(--down); }
+.btn-down:hover:not(:disabled) { background: var(--down-hover); }
+
+/* ── pills ─────────────────────────────────────────────────────────────── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  font-size: var(--t-caption);
+  font-weight: 600;
+  background: var(--sunk);
+  color: var(--ink-2);
+}
+.pill-open { background: var(--sunk); color: var(--ink-2); }
+.pill-void { background: var(--void-wash); color: var(--void); }
+.pill-up { background: var(--up-wash); color: var(--up-text); }
+.pill-down { background: var(--down-wash); color: var(--down-text); }
+
+/* ── notes ─────────────────────────────────────────────────────────────────
+   A sentence the reader needs before they act. Not a toast, not a tooltip —
+   it sits in the flow, where the decision is. */
+.note {
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-md);
+  background: var(--sunk);
+  color: var(--ink-2);
+  font-size: var(--t-caption);
+  line-height: 1.55;
+}
+.note-void { background: var(--void-wash); color: var(--void); }
+.note strong { color: var(--ink); font-weight: 600; }
+.note-void strong { color: var(--void); }
+
+/* ── empty / loading / error ───────────────────────────────────────────── */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-4);
+  text-align: center;
+  padding: var(--s-8) var(--s-5);
+}
+.empty h2 { font-size: var(--t-title); }
+.empty p { max-width: 46ch; color: var(--ink-2); }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--sunk) 25%, var(--shimmer) 50%, var(--sunk) 75%);
+  background-size: 400% 100%;
+  animation: shimmer 1.5s linear infinite;
+  border-radius: var(--r-lg);
+}
+.skeleton-card { height: 280px; }
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--s-5);
+}
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}

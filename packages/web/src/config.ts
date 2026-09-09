@@ -6,6 +6,15 @@
 
 export type NetworkName = "devnet" | "testnet" | "mainnet";
 
+/** The product name, in one place.
+ *
+ *  *Pari-mutuel* is French for "mutual betting", and the machine that has
+ *  computed pari-mutuel odds at racetracks for a century is the totalisator —
+ *  the **tote**. It is the true name for this exact mechanism, and it brings a
+ *  whole vocabulary with it that a coined word would not: the pot, next off,
+ *  no takers, the board. Title case, not caps: this is a place, not a system. */
+export const BRAND = "Tote";
+
 // Vite injects `import.meta.env`; under a plain Node runner (tests) it's absent, so
 // fall back to an empty object and the defaults below.
 const env = import.meta.env ?? {};

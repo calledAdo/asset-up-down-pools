@@ -22,22 +22,43 @@ const feedId = (name) => "0x" + Buffer.from(name).toString("hex").padEnd(64, "0"
 const poolId = (i) => "0x" + i.toString(16).padStart(64, "0");
 
 // Lane catalogue. `up`/`down` are the staked CKB on each side; odds are derived.
+//
+// Deliberately NOT all healthy. Two of these are empty and two are one-sided,
+// because that is what a board actually looks like on a quiet Tuesday once you
+// split the same players across a dozen lanes — and those are exactly the
+// states the UI has to draw honestly (a hatched, uncut track; a seam pinned at
+// the end inside a claret ring). A fixture where every pot is comfortably
+// two-sided hides the cases worth designing for.
 const LANES = [
-  { label: "BTC/USD · 1 min", feed: "btc", dur: 60, up: 3200, down: 2300 },
+  { label: "BTC/USD · 1 min", feed: "btc", dur: 60, up: 3200, down: 2286 },
   { label: "BTC/USD · 5 min", feed: "btc", dur: 300, up: 7420, down: 4280 },
-  { label: "BTC/USD · 15 min", feed: "btc", dur: 900, up: 3100, down: 3350 },
-  { label: "BTC/USD · 1 hour", feed: "btc", dur: 3600, up: 9800, down: 2270 },
+  { label: "BTC/USD · 15 min", feed: "btc", dur: 900, up: 96400, down: 12500 },
+  { label: "BTC/USD · 1 hour", feed: "btc", dur: 3600, up: 214500, down: 188200 },
   { label: "BTC/USD · 4 hour", feed: "btc", dur: 14400, up: 5400, down: 6900 },
-  { label: "BTC/USD · 1 day", feed: "btc", dur: 86400, up: 12100, down: 10700 },
-  { label: "ETH/USD · 5 min", feed: "eth", dur: 300, up: 2600, down: 1150 },
-  { label: "ETH/USD · 1 hour", feed: "eth", dur: 3600, up: 4100, down: 4100 },
+  { label: "BTC/USD · 1 day", feed: "btc", dur: 86400, up: 1284000, down: 961500 },
+  { label: "ETH/USD · 1 min", feed: "eth", dur: 60, up: 620, down: 0 }, // one-sided → voids
+  { label: "ETH/USD · 5 min", feed: "eth", dur: 300, up: 1450, down: 1980 },
+  { label: "ETH/USD · 15 min", feed: "eth", dur: 900, up: 0, down: 0 }, // empty → no seam
+  { label: "ETH/USD · 1 hour", feed: "eth", dur: 3600, up: 88000, down: 64000 },
+  { label: "SOL/USD · 5 min", feed: "sol", dur: 300, up: 620, down: 0 }, // one-sided
+  { label: "SOL/USD · 15 min", feed: "sol", dur: 900, up: 14200, down: 9800 },
+  { label: "SOL/USD · 1 hour", feed: "sol", dur: 3600, up: 51000, down: 47500 },
+  { label: "CKB/USD · 15 min", feed: "ckb", dur: 900, up: 8800, down: 12400 },
+  { label: "CKB/USD · 1 hour", feed: "ckb", dur: 3600, up: 61000, down: 22000 },
+  { label: "CKB/USD · 1 day", feed: "ckb", dur: 86400, up: 780000, down: 690000 },
+  // No SOL 1d and no CKB 5m: not every cell in the matrix is a lane, and the
+  // board says "lane not enabled" rather than drawing a zero.
 ];
 
+// `start_time` is when the round LOCKS — deposits close and the oracle stamps
+// the line — and `close_time` is when it SETTLES, a full duration later. An
+// OPEN round therefore has its start in the FUTURE; getting this backwards is
+// what makes every open round render as "lock overdue".
 function timing(dur) {
   const t = now();
-  let close = Math.ceil(t / dur) * dur; // next boundary
-  if (close - t < 4) close += dur; // keep a little time on the clock
-  return { start: close - dur, close, void: close + 7 * 86400 };
+  let start = Math.ceil(t / dur) * dur; // next boundary
+  if (start - t < 4) start += dur; // keep a little time on the clock
+  return { start, close: start + dur, void: start + dur + 7 * 86400 };
 }
 
 function sideOdds(pool, total) {
@@ -95,9 +116,12 @@ const openPools = () => LANES.map((lane, i) => openPool(lane, i));
 
 // Rounds that have locked and are running toward settle — the "In play" section.
 const LOCKED = [
-  { lane: "BTC/USD · 5 min", feed: "btc", dur: 300, up: 5200, down: 3100, settleIn: 95, start: 64180.2 },
-  { lane: "BTC/USD · 1 hour", feed: "btc", dur: 3600, up: 8800, down: 11200, settleIn: 540, start: 64320.0 },
-  { lane: "ETH/USD · 5 min", feed: "eth", dur: 300, up: 1900, down: 2400, settleIn: 150, start: 3402.5 },
+  { lane: "BTC/USD · 5 min", feed: "btc", dur: 300, up: 8140, down: 11902, settleIn: 95, start: 113610.0 },
+  { lane: "BTC/USD · 1 hour", feed: "btc", dur: 3600, up: 301000, down: 96500, settleIn: 540, start: 113120.0 },
+  { lane: "ETH/USD · 1 hour", feed: "eth", dur: 3600, up: 88000, down: 64000, settleIn: 1180, start: 4201.8 },
+  // Locked with one side empty: it will void, and the board says so now
+  // rather than after the fact.
+  { lane: "SOL/USD · 15 min", feed: "sol", dur: 900, up: 4300, down: 0, settleIn: 320, start: 214.2 },
 ];
 
 function lockedPools() {
@@ -125,12 +149,15 @@ function lockedPools() {
 
 // A few finished rounds for the History page.
 const HISTORY = [
-  { lane: "BTC/USD · 5 min", feed: "btc", dur: 300, up: 6100, down: 9400, winner: "down", ago: 360 },
+  { lane: "BTC/USD · 5 min", feed: "btc", dur: 300, up: 9350, down: 6120, winner: "up", ago: 360 },
   { lane: "BTC/USD · 1 hour", feed: "btc", dur: 3600, up: 14200, down: 8800, winner: "up", ago: 4200 },
-  { lane: "ETH/USD · 5 min", feed: "eth", dur: 300, up: 2200, down: 2050, winner: "up", ago: 700 },
-  { lane: "BTC/USD · 15 min", feed: "btc", dur: 900, up: 0, down: 5300, winner: "void", ago: 1300 },
-  { lane: "BTC/USD · 1 day", feed: "btc", dur: 86400, up: 18900, down: 16400, winner: "down", ago: 90000 },
-  { lane: "ETH/USD · 1 hour", feed: "eth", dur: 3600, up: 7700, down: 9100, winner: "up", ago: 8000 },
+  { lane: "ETH/USD · 5 min", feed: "eth", dur: 300, up: 2200, down: 2050, winner: "down", ago: 700 },
+  // Voided on an exact tie: the split was fine, the two prices were identical.
+  { lane: "BTC/USD · 15 min", feed: "btc", dur: 900, up: 22000, down: 22000, winner: "void", ago: 1300, tie: true },
+  { lane: "BTC/USD · 1 day", feed: "btc", dur: 86400, up: 1980000, down: 2410000, winner: "down", ago: 90000 },
+  // Voided the other way: nothing on DOWN at lock, so there was nobody to pay.
+  { lane: "SOL/USD · 5 min", feed: "sol", dur: 300, up: 9100, down: 0, winner: "void", ago: 1900 },
+  { lane: "CKB/USD · 1 hour", feed: "ckb", dur: 3600, up: 61000, down: 22000, winner: "up", ago: 8000 },
 ];
 
 function history() {
@@ -148,7 +175,18 @@ function history() {
       closeTime: String(close),
       voidTime: String(close + 7 * 86400),
       rakeBps: RAKE_BPS,
-      prices: { start: "64210.50", settle: h.winner === "up" ? "64880.25" : "63540.10", usedPt: String(close) },
+      prices: (() => {
+        const base = basePrice(feedId(h.feed));
+        const start = base.toFixed(base < 1 ? 6 : 2);
+        const settle = h.tie
+          ? start
+          : h.winner === "up"
+            ? (base * 1.004).toFixed(base < 1 ? 6 : 2)
+            : h.winner === "down"
+              ? (base * 0.996).toFixed(base < 1 ? 6 : 2)
+              : "0";
+        return { start, settle, usedPt: String(close) };
+      })(),
       odds: odds(h.up, h.down),
       outPoint: { txHash: poolId(100 + i), index: 0 },
       indexedAt: String(now()),
@@ -166,7 +204,16 @@ function positions() {
     holderLockHash: "0x" + "ab".repeat(32),
     outPoint: { txHash: poolId(id), index: 0 },
   });
-  return [mk(2, "up", 500, 1), mk(4, "up", 1200, 1), mk(3, "down", 300, 2), mk(101, "up", 800, 1)];
+  // One of each, so the stakes page's sort order is actually visible:
+  // redeem (a win), refund (a void), withdraw (still open), wait (locked).
+  return [
+    mk(2, "up", 2000, 1),      // BTC 5m, open      → withdraw
+    mk(9, "up", 5000, 1),      // ETH 15m, empty    → withdraw, voids as it stands
+    mk(50, "up", 3000, 1),     // BTC 5m, locked    → wait
+    mk(52, "down", 8000, 2),   // ETH 1h, locked    → wait
+    mk(100, "up", 4000, 1),    // BTC 5m, UP won    → redeem
+    mk(103, "down", 12000, 2), // BTC 15m, void tie → refund
+  ];
 }
 
 // ── synthetic price series for the detail chart ─────────────────────────────
@@ -184,7 +231,13 @@ function seedOf(hex) {
   for (let i = 2; i < hex.length; i++) { h ^= hex.charCodeAt(i); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-const basePrice = (feedHex) => (feedHex.startsWith("0x657468") ? 3400 : 64000); // 'eth' vs 'btc'
+const BASE = { btc: 113842, eth: 4218.4, sol: 214.6, ckb: 0.008124 };
+const basePrice = (feedHex) => {
+  for (const [name, px] of Object.entries(BASE)) {
+    if (feedHex.startsWith("0x" + Buffer.from(name).toString("hex"))) return px;
+  }
+  return 100;
+};
 
 // Returns { base, candles } — `base` is the price-to-beat (round open).
 function makeSeries(pool) {
@@ -192,7 +245,10 @@ function makeSeries(pool) {
   const base = pool.prices.start !== "0" ? Number(pool.prices.start) : basePrice(pool.feedId);
   const n = 32;
   const dur = Math.max(60, Number(pool.lane.durationSecs));
-  const start = Number(pool.closeTime) - dur;
+  // An open round's line has not been stamped, so its series is recent context
+  // running up to NOW. A locked or settled round's series covers its own window.
+  const end = Math.min(now(), Number(pool.closeTime));
+  const start = end - dur;
   const step = dur / n;
   const vol = base * 0.0011;
   let price = base;

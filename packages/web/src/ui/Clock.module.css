@@ -1,0 +1,17 @@
+.clock {
+  display: inline;
+  font-variant-numeric: tabular-nums;
+  font-weight: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+/* Urgency is carried by the surrounding type scale and weight, not by a third
+   colour — see tokens.css. These stay for callers that want a plain figure. */
+.past { color: var(--ink-3); }
+.urgent { font-weight: 800; }
+.inline { display: inline; }
+
+.sm, .md, .lg, .xl, .hero { font-size: inherit; }
+
+.note { font-size: var(--t-caption); color: var(--ink-3); margin-top: var(--s-1); }

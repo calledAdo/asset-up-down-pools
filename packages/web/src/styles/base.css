@@ -1,0 +1,56 @@
+/* Reset, document, and the type roles. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--face);
+  font-size: var(--t-body);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  font-synthesis-weight: none;
+}
+
+a { color: inherit; text-decoration: none; }
+
+button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+button:disabled { cursor: default; }
+input { font: inherit; color: inherit; }
+
+:focus-visible { outline: 2.5px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+
+h1, h2, h3 { margin: 0; font-weight: 600; line-height: 1.2; letter-spacing: -0.015em; }
+h1 { font-size: var(--t-display); letter-spacing: -0.025em; }
+h2 { font-size: var(--t-title); }
+p { margin: 0; }
+
+/* Figures. Tabular numerals so amounts line up down a column — the only thing
+   a monospace face was buying us, without the monospace face. */
+.num { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+/* The small word above a figure. Sentence case, not shouty tracked-out caps:
+   caps at 9px was a big part of what made the last design read as a terminal. */
+.label {
+  font-size: var(--t-caption);
+  font-weight: 500;
+  color: var(--ink-3);
+  line-height: 1.3;
+}
+
+.sr {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

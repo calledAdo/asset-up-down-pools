@@ -1,0 +1,147 @@
+/* ───────────────────────────────────────────────────────────────────────────
+   Design tokens. Single source of truth for colour, type, space and motion.
+   Nothing in the app hard-codes a hex.
+
+   THE BRIEF
+   This is a place people come to make a small, fast decision — is BTC higher
+   in five minutes, yes or no — and walk away. It is not a workstation, and it
+   should not look like one. Two earlier attempts leaned dark, dense and
+   monospaced, and both read as a trading terminal. So:
+
+     · a warm, light ground. Paper, not a screen in a dark room.
+     · one thing per card, with room around it. Air is the point, not a cost.
+     · nothing smaller than 13px, and body copy at 16px.
+     · no monospace anywhere. Figures use tabular numerals from the same
+       humanist face, which keeps columns aligned without the terminal look.
+
+   THE TWO SIDES stay blue and amber, never green/red, for three reasons that
+   have nothing to do with taste: DOWN is a side you WIN on and must not read
+   as failure; blue/amber is the one pair that survives all three common
+   colour blindnesses; and they separate enough on luminance to survive
+   greyscale. Colour is never the only carrier — every side reading also has
+   the word and an arrow.
+
+   THE RESERVATION still runs both ways. Blue and amber mean "a side of the
+   pot" and nothing else — not a link, not a primary button, not an active
+   tab. Those are all ink.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/archivo.woff2") format("woff2");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* ── ground: SOFT DARK ───────────────────────────────────────────────────
+     Dark, but not the dark this project already got wrong once. The earlier
+     rejected design was dark AND dense AND monospaced, and it read as a
+     trading terminal; the fault was the density and the mono, not the dark.
+     So this keeps every bit of the air — one round per card, 16px copy, 20px
+     radii — and simply sets it at night.
+
+     A WARM charcoal with a faint violet cast, never a blue-black: blue-black
+     plus a blue side colour is how a page starts looking like a terminal
+     again. Cards are a lifted panel, not an outline. */
+  --page: #17161a;
+  --card: #211f26;
+  --sunk: #2b2833;     /* a well inside a card — an input, a quiet panel */
+  --line: #332f3c;     /* borders */
+  --line-soft: #2a2733;
+
+  /* ── ink ─────────────────────────────────────────────────────────────────
+     Warm bone rather than pure white — white on near-black glares, and this
+     is a screen people stare at while a clock runs down. Every step clears
+     4.5:1 on --card. */
+  --ink: #f3f0ea;      /* headings, figures                       15.0:1 */
+  --ink-2: #b5aeb8;    /* body copy                                7.5:1 */
+  --ink-3: #8b8492;    /* labels and captions                      4.5:1 */
+
+  /* ── the two sides ───────────────────────────────────────────────────────
+     Blue-versus-warm is not a style choice: it is the one hue pair that
+     survives protanopia, deuteranopia AND tritanopia, on a screen where
+     confusing the two sides costs money. Green/red is out for a separate
+     reason — DOWN is a side you WIN on, and must never be drawn as a failure.
+
+     Each side has TWO values and they are NOT interchangeable:
+       · the FILL, used where area is the reading (the bar);
+       · the TEXT tone, pushed until it clears 4.5:1 on --card.
+
+     Note the direction reverses on a dark ground. On paper the text tone is
+     DARKER than the fill; here it is LIGHTER. Anyone porting this palette
+     between grounds has to re-derive both, not invert the hex. */
+  --up: #6f9bf5;        /* cobalt, lifted for a dark ground — fill */
+  --up-text: #9dbaf9;   /* 8.4:1 */
+  --up-wash: #1e2740;
+  --down: #f0a05c;      /* amber — fill */
+  --down-text: #f3b57e; /* 9.1:1 */
+  --down-wash: #332518;
+
+  /* ── the two non-side states ─────────────────────────────────────────────
+     Rose is "your money came back" — a void or a refund. It is deliberately
+     NOT a loss colour, and there is no green anywhere: a win is stated in
+     ink and money, because a green tick next to a blue side would start
+     reading as "blue is the good one". */
+  --void: #e46080;      /* 4.9:1 */
+  --void-wash: #3a1f2a;
+
+  /* Urgency gets NO hue of its own. On a light ground a third colour beside
+     two side colours is noise, so a clock running out grows and goes bold
+     instead. Colour stays reserved for what colour is for. */
+
+  /* ── type ────────────────────────────────────────────────────────────────
+     One family. Archivo ships a variable weight axis, so headings, body and
+     figures are all the same voice at different weights — which is most of
+     what makes an interface feel like a product rather than a dashboard. */
+  --face: "Archivo", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --t-caption: 13px;
+  --t-body: 16px;
+  --t-lead: 18px;
+  --t-title: 22px;
+  --t-display: clamp(34px, 5vw, 44px);
+  --t-hero: clamp(44px, 7vw, 64px);
+
+  /* ── space ───────────────────────────────────────────────────────────────
+     A 4px scale. The big ones exist to be used: the whole complaint about
+     the last design was that everything was 2px apart. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
+  /* ── shape ───────────────────────────────────────────────────────────────
+     Generously rounded. The previous design had no radii at all — deliberate
+     there, and exactly what made it feel like instrumentation. */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* On a dark ground a shadow can't lift a card the way it does on paper, so
+     it does half the work and the card's own lighter fill does the rest. */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.22);
+  --shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.35), 0 12px 30px rgba(0, 0, 0, 0.38);
+
+  /* Hover tints, derived from the sides so they can never drift out of sync
+     with them — and so this file stays the only place a colour is decided. */
+  --up-hover: color-mix(in srgb, var(--up) 22%, var(--card));
+  --down-hover: color-mix(in srgb, var(--down) 22%, var(--card));
+  --shimmer: color-mix(in srgb, var(--ink) 10%, var(--sunk));
+
+  --gut: clamp(16px, 4vw, 32px);
+  --measure: 1080px;
+
+  /* ── motion ──────────────────────────────────────────────────────────── */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fast: 0.14s var(--ease);
+  --slow: 0.45s var(--ease);
+}
